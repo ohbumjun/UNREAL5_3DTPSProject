@@ -3,6 +3,7 @@
 #include "Projectile.h"
 #include "Components/BoxComponent.h"
 #include "Kismet/GameplayStatics.h"
+#include "Sound/SoundCue.h"
 #include "Gameframework/ProjectileMovementComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
@@ -12,6 +13,7 @@ AProjectile::AProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
+	// Server 에서 Spawn 되면, 그러한 Spawn Action 이 클라이언트들에게 Replicate 되는 것 (즉, 클라이언트 측에서도 생성)
 	bReplicates = true;
 
 	m_CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
@@ -49,12 +51,68 @@ void AProjectile::BeginPlay()
 			EAttachLocation::KeepWorldPosition 
 		);
 	}
+
+	// Bind Hit Event To Delegate
+	// - Only At Server -> Only Be Generated On Server, Not Client -> We Won't Get Hit Events On Client
+	// Why ? Because Server Need Authority Over It
+	if (HasAuthority())
+	{
+		m_CollisionBox->OnComponentHit.AddDynamic(this, &ThisClass::OnHit);
+	}
+}
+
+// Spawn Partcle And Sound
+void AProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
+{
+	/*
+	이렇게 하면 Server 측에서만 생성된다.
+	즉, 설령 Client측에서 총을 쏴도, 충돌 시에 Particle 및 Sound 는 Server 에서만 보이게 된다
+	왜냐하면 현재 RPC, FNetVector_Quantize 등을 통해서, Client측에서 Projecttile 을 생성하면
+	서버, 클라이언트 모두에서 생성될 수 있게 했다.
+
+	단, BeginPlay() 에서 Server 일 때만 해당 Overlap Event 함수가 호출되게 했으므로
+	서버측에서만 보이게 되는 것이다.
+
+	if (m_ImpactParticle)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), m_ImpactParticle, GetActorTransform());
+	}
+
+	if (m_ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, m_ImpactSound, GetActorLocation());
+	}
+	*/
+
+	
+	// AProjectile Actor 를 Destroy 할 것이다.
+	// 참고 : Server 에서"만" Destroy해도 해당 정보가 Propagate 되어서 다른 클라이언트에서도 사라지게 된다.
+	// OnHit 라는 함수는 서버에서만 실행되게 해두었다 (위에 주석글 참고)
+	Destroy();
 }
 
 // Called every frame
 void AProjectile::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+}
+
+// Called When Actor Destroyed During GamePlay, Or In the Editor
+// - If Called From Server -> Replicated To Client -> Also Actor Destoryed From Client
+void AProjectile::Destroyed()
+{
+	Super::Destroyed();
+
+	// 여기 함수에 넣은 코드는 모든 기계에서 실행된다.
+	if (m_ImpactParticle)
+	{
+		UGameplayStatics::SpawnEmitterAtLocation(GetWorld(), m_ImpactParticle, GetActorTransform());
+	}
+
+	if (m_ImpactSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(this, m_ImpactSound, GetActorLocation());
+	}
 
 }
 

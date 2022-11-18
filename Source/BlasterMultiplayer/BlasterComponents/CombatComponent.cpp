@@ -104,7 +104,7 @@ void UCombatComponent::OnRep_EquippedWeapon()
 	}
 }
 
-// Call From Blaster Charcter
+// Call From Blaster Charcter (Can be Called From Client And Server All)
 void UCombatComponent::FireButtonPressed(bool bPressed)
 {
 	m_FireButtonPressed = bPressed;

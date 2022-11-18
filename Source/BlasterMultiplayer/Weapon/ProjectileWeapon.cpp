@@ -27,7 +27,8 @@ void AProjectileWeapon::Fire(const FVector& HitTarget)
 	// 클라이언트 측에서는 안보이게 될 것이다.
 	// Replicate 해야 한다.
 	// 이를 위해서는 ProjectTile 의 생성자에서 bReplicates = true 를 세팅해줘야 한다.
-
+	// 그러면 Server 에서 ProjectTile 을 생성하면, 해당 생성 Action 이 Replicate 되어
+	// 다른 Client  들에서도 생성되게 될 것이다.
 
 	APawn* ProjectTileInstigator = Cast<APawn>(GetOwner());
 
