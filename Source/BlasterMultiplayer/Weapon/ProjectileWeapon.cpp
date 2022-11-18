@@ -13,9 +13,15 @@ void AProjectileWeapon::Fire(const FVector& HitTarget)
 	// 우리가 사용하는 Gun Skeletal Mesh 에 MuzzleFlash 라는 Socket 을 달아야 한다.
 	const USkeletalMeshSocket* MuzzleFlashSocket = GetWeaponMesh()->GetSocketByName(FName("MuzzleFlash"));
 
+	
+
 	if (MuzzleFlashSocket)
 	{
 		FTransform SocketTransform = MuzzleFlashSocket->GetSocketTransform(GetWeaponMesh());
+
+		UE_LOG(LogTemp, Warning, TEXT("Hit Target -> x : %f"), HitTarget.X);
+		UE_LOG(LogTemp, Warning, TEXT("Hit Target -> y : %f"), HitTarget.Y);
+		UE_LOG(LogTemp, Warning, TEXT("Hit Target -> z : %f"), HitTarget.Z);
 
 		// Projectile 의 방향 세팅 (From MuzzleFlash Socket to HitTarget From TraceUnderCrosshairs)
 		FVector ToTarget = HitTarget - SocketTransform.GetLocation();

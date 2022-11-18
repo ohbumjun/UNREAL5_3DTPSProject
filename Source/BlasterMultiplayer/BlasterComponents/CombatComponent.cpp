@@ -13,7 +13,6 @@
 
 UCombatComponent::UCombatComponent()
 {
-	// PrimaryComponentTick.bCanEverTick = false;
 	PrimaryComponentTick.bCanEverTick = true; // For Debuggin Weapon Hit Point
 
 	m_BaseWalkSpeed = 600.f;
@@ -245,7 +244,7 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 	TraceUnderCrosshairs(HitResult);
 
-	UE_LOG(LogTemp, Warning, TEXT("Hello"));
+	// UE_LOG(LogTemp, Warning, TEXT("Tick Component"));
 }
 
 
