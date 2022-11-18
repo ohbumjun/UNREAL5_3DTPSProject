@@ -2,12 +2,17 @@
 
 #include "Projectile.h"
 #include "Components/BoxComponent.h"
+#include "Kismet/GameplayStatics.h"
 #include "Gameframework/ProjectileMovementComponent.h"
+#include "Particles/ParticleSystemComponent.h"
+#include "Particles/ParticleSystem.h"
 
 // Sets default values
 AProjectile::AProjectile()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	bReplicates = true;
 
 	m_CollisionBox = CreateDefaultSubobject<UBoxComponent>(TEXT("CollisionBox"));
 	SetRootComponent(m_CollisionBox);
@@ -31,6 +36,19 @@ void AProjectile::BeginPlay()
 {
 	Super::BeginPlay();
 	
+	if (m_Tracer)
+	{
+		// Attach To Root Component Or Collision Box
+		m_TracerComponent = UGameplayStatics::SpawnEmitterAttached(
+			m_Tracer, // Particle System
+			m_CollisionBox, // Attach to Root
+			FName(), // If Want To Attach To Certain Bone, Set Name Of Bone
+			GetActorLocation(),
+			GetActorRotation(),
+			// Spawn Tracer Component At The Position Of Root Component, And Follow
+			EAttachLocation::KeepWorldPosition 
+		);
+	}
 }
 
 // Called every frame

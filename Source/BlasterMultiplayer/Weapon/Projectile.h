@@ -26,4 +26,12 @@ private  :
 
 	UPROPERTY(VisibleAnywhere)
 		class UProjectileMovementComponent* m_ProjectileMovementComponent;
+
+	// Spawn Particle System For Bullet
+	// Blueprint 상에서 Setting 해도 된다.
+	UPROPERTY(EditAnywhere)
+	class UParticleSystem* m_Tracer;
+
+	// Tracer 를 생성하면 해당 멤버변수에 UParticleSystemComponent 세팅
+	class UParticleSystemComponent* m_TracerComponent;
 };

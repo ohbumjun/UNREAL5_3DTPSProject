@@ -130,7 +130,11 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 	// 사실상 서버에서 Multicast RPC 를 호출해주어야 한다.
 	if (m_FireButtonPressed)
 	{
-		ServerFire();
+		FHitResult HitResult;
+
+		TraceUnderCrosshairs(HitResult);
+
+		ServerFire(HitResult.ImpactPoint);
 	}
 }
 
@@ -181,29 +185,29 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 		{ 
 			TraceHitResult.ImpactPoint = End;
 
-			m_HitTarget = End;
+			// m_HitTarget = End;
 		}
 		else
 		{
 			// Working
 			// Draw Sphere
-			DrawDebugSphere(
-				GetWorld(),
-				TraceHitResult.ImpactPoint,
-				12.f,
-				12.f,
-				FColor::Red,
-				false, // Draw Debug Sphere Every Frame
-				-1.f   // Draw Debug Sphere Every Frame
-			);
+			// DrawDebugSphere(
+			// 	GetWorld(),
+			// 	TraceHitResult.ImpactPoint,
+			// 	12.f,
+			// 	12.f,
+			// 	FColor::Red,
+			// 	false, // Draw Debug Sphere Every Frame
+			// 	-1.f   // Draw Debug Sphere Every Frame
+			// );
 
 			// HitTarget 변수로 세팅
-			m_HitTarget = TraceHitResult.ImpactPoint;
+			// m_HitTarget = TraceHitResult.ImpactPoint;
 		}
 	}
 }
 
-void UCombatComponent::MulticastFire_Implementation()
+void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
 	if (m_EquippedWeapon == nullptr)
 		return;
@@ -220,7 +224,11 @@ void UCombatComponent::MulticastFire_Implementation()
 		m_BlasterCharacter->PlayFireMontage(m_bAiming);
 
 		// Fire Weapon -> Play Animation For Weapon Itself In It
-		m_EquippedWeapon->Fire(m_HitTarget);
+		// m_EquippedWeapon->Fire(m_HitTarget);
+
+		// TraceHitTarget : HitTarget That Is Being BroadCasted 
+		// ex) Client Calculate TraceHitTarget -> RPC -> Pass In TraceHitTarget -> Execute All On Server, Client 
+		m_EquippedWeapon->Fire(TraceHitTarget); 
 	}
 }
 
@@ -230,21 +238,15 @@ void UCombatComponent::MulticastFire_Implementation()
 
 // 정리 : Client -> Server RPC 인 ServerFire 호출 -> ServerFire_Implementation 가 서버에서 실행 ->
 //       -> Multicast RPC 를 Server 에서 호출 -> MulticastFire_Implementation 가 모든 Client, 서버에서 실행
-void UCombatComponent::ServerFire_Implementation()
+void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
-	MulticastFire();
+	MulticastFire(TraceHitTarget);
 }
 
 // Called every frame
 void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	FHitResult HitResult;
-
-	TraceUnderCrosshairs(HitResult);
-
-	// UE_LOG(LogTemp, Warning, TEXT("Tick Component"));
 }
 
 

@@ -27,8 +27,10 @@ public:
 protected:
 	// Called when the game starts
 	virtual void BeginPlay() override;
+
 	// Called From Character => Cover Both Server, Client Change //
 	void SetAiming(bool bIsAiming);
+
 	// Server RPC
 	UFUNCTION(Server, Reliable)
 	void ServerSetAiming(bool bIsAiming);
@@ -40,10 +42,10 @@ protected:
 
 	// Server RPC : Called From Client -> Execute From Sever -> Replicate
 	UFUNCTION(Server, Reliable)
-		void ServerFire();
+		void ServerFire(const FVector_NetQuantize& TraceHitTarget);
 
 	UFUNCTION(NetMulticast, Reliable)
-	void MulticastFire();
+	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
 
 	void TraceUnderCrosshairs(FHitResult& TraceHit);
 private :
@@ -66,8 +68,9 @@ private :
 	
 	bool m_FireButtonPressed;
 
-	// TickComponent 상에서 실시간 Update 를 진행 중이다 
-	FVector m_HitTarget;
+	// 해당 변수 대신, 각 Client 에서 Fire시에 HitTarget 을 구한 다음, FVector_NetQuantize 를 통해 RPC 호출하여
+	// BroadCasting 할 것이다 -> 그래야만 모든 기계에서 동일한 HitTarget 으로 동기화 될 수 있기 때문이다.
+	// FVector m_HitTarget;
 
 public :
 };
