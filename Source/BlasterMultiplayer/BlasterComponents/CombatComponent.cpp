@@ -3,6 +3,7 @@
 
 #include "CombatComponent.h"
 #include "Components/SphereComponent.h"
+#include "Camera/CameraComponent.h"
 #include "../Weapon/Weapon.h"
 #include "../Character/BlasterCharacter.h"
 #include "Engine/SkeletalMeshSocket.h"
@@ -10,6 +11,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
+#include "../PlayerController/BlasterPlayerController.h"
+#include "../HUD/BlasterHUD.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -32,11 +35,22 @@ void UCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	SetComponentTickEnabled(true);
+	// SetComponentTickEnabled(true);
 	
-	// 참고 : Crouch 할 때는 CharacterMovementComponent 상에서 MaxWalkSpeed 가 아니라 Crouch Walk Speed 변수를 사용
-	// 따라서 해당 값은 Crouch 할때는 적용되지 않는다.
-	m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = m_BaseWalkSpeed;
+	if (m_BlasterCharacter)
+	{
+		// 참고 : Crouch 할 때는 CharacterMovementComponent 상에서 MaxWalkSpeed 가 아니라 Crouch Walk Speed 변수를 사용
+		// 따라서 해당 값은 Crouch 할때는 적용되지 않는다.
+		m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = m_BaseWalkSpeed;
+
+		if (m_BlasterCharacter->GetFollowCamera())
+		{
+			m_DefaultFOV = m_BlasterCharacter->GetFollowCamera()->FieldOfView;
+			m_CurrentFOV = m_DefaultFOV;
+		}
+	}
+
+
 }
 
 void UCombatComponent::SetAiming(bool bIsAiming)
@@ -207,6 +221,97 @@ void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
 	}
 }
 
+// Called Every Frame
+void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
+{
+	// Access HUD by PlayerController
+	if (m_BlasterCharacter == nullptr)
+		return;
+
+	m_Controller = m_Controller == nullptr ? Cast<ABlasterPlayerController>(m_BlasterCharacter->Controller) : m_Controller;
+
+	if (m_Controller)
+	{
+		// Set HUD
+		m_HUD = m_HUD == nullptr ? Cast<ABlasterHUD>(m_Controller->GetHUD()) : m_HUD;
+
+		if (m_HUD)
+		{
+			FHUDPackage HUDPackage;
+
+			if (m_EquippedWeapon)
+			{
+				// Create FHUD Package With CrossHair Textures & Set It To BlasterCharacter
+				HUDPackage.CrosshairsCenter = m_EquippedWeapon->m_CrosshairCenter;
+				HUDPackage.CrosshairsLeft = m_EquippedWeapon->m_CrosshairLeft;
+				HUDPackage.CrosshairsRight = m_EquippedWeapon->m_CrosshairRight;
+				HUDPackage.CrosshairsTop = m_EquippedWeapon->m_CrosshairTop;
+				HUDPackage.CrosshairsBottom = m_EquippedWeapon->m_CrosshairBottom;
+			}
+			else
+			{
+				// If No Weapon Equipped, We will have no crosshairs
+				HUDPackage.CrosshairsCenter = nullptr;
+				HUDPackage.CrosshairsLeft = nullptr;
+				HUDPackage.CrosshairsRight = nullptr;
+				HUDPackage.CrosshairsTop = nullptr;
+				HUDPackage.CrosshairsBottom = nullptr;
+			}
+
+			// Calculate Crosshairs Spread
+			// - Charcter 의 Speed 에 따라 크기가 조금씩 달라지게 할 것이다
+			// [0, 600] -> [0, 1] (최대 속도가 600이라고 한다면, 비율에 따라 0과 1 범위로 mapping 시킬 것이다)
+			FVector2D WalkSpeedRange(0.f, m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed);
+			FVector2D VelocityMultiplierRange(0, 1.f);
+
+			FVector Velocity = m_BlasterCharacter->GetVelocity();
+			Velocity.Z = 0.f;
+
+			m_CrosshairVelocityFactor = FMath::GetMappedRangeValueClamped(WalkSpeedRange, VelocityMultiplierRange, Velocity.Size());
+
+			// In Air ->Spread More Slowly -> Interpolate Using DeltaTime
+			if (m_BlasterCharacter->GetCharacterMovement()->IsFalling())
+			{
+				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 2.25f, DeltaTime, 2.25f);
+			}
+			else
+			{
+				// when hit ground -> interpolate to 0 with much faster 
+				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 0.f, DeltaTime, 30.f);
+			}
+
+			HUDPackage.CrosshairSpread = m_CrosshairVelocityFactor + m_CrosshairInAirFactor;
+
+			m_HUD->SetHUDPackage(HUDPackage);
+
+			
+		}
+	}
+}
+
+void UCombatComponent::InterpFOV(float DeltaTime)
+{
+	if (m_EquippedWeapon == nullptr)
+		return;
+	
+	if (m_bAiming)
+	{
+		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_EquippedWeapon->GetZoomedFOV(),
+			DeltaTime, m_EquippedWeapon->GetZoomedInterpSpeed());
+	}
+	else
+	{
+		// Interp Back To Default FOV , at Default Speed
+		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_DefaultFOV, DeltaTime,
+			m_ZoomInterpSpeed);
+	}
+
+	if (m_BlasterCharacter && m_BlasterCharacter->GetFollowCamera())
+	{
+		m_BlasterCharacter->GetFollowCamera()->SetFieldOfView(m_CurrentFOV);
+	}
+}
+
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
 	if (m_EquippedWeapon == nullptr)
@@ -247,6 +352,19 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+
+
+	if (m_BlasterCharacter && m_BlasterCharacter->IsLocallyControlled())
+	{
+		FHitResult HitResult;
+		TraceUnderCrosshairs(HitResult);
+		m_HitTarget = HitResult.ImpactPoint;
+		
+		SetHUDCrosshairs(DeltaTime);
+	
+		InterpFOV(DeltaTime);
+	}
 }
 
 

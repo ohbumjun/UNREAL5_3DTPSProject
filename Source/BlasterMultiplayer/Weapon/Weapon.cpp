@@ -7,6 +7,9 @@
 #include "Net/UnrealNetwork.h" // Replicate Variable
 #include "BlasterMultiplayer/Character/BlasterCharacter.h"
 #include "Animation/AnimationAsset.h"
+#include "Casing.h"
+#include "Engine/SkeletalMeshSocket.h"
+
 
 AWeapon::AWeapon()
 {
@@ -153,6 +156,33 @@ void AWeapon::Fire(const FVector& HitTarget)
 	{
 		// Play Animation Using Skeletal Mesh 
 		m_WeaponMesh->PlayAnimation(m_FireAnimation, false); // false : No Loop
+	}
+
+	// Bullet 생성
+	// ACasing Not Replicated
+	// Allow Spawning ACasing Actor Locally
+	if (m_CasingClass)
+	{
+		// 우리가 사용하는 Gun Skeletal Mesh 에 MuzzleFlash 라는 Socket 을 달아야 한다.
+		const USkeletalMeshSocket* AmmoEjectSocket = m_WeaponMesh->GetSocketByName(FName("AmmoEject"));
+
+		if (AmmoEjectSocket)
+		{
+			FTransform SocketTransform = AmmoEjectSocket->GetSocketTransform(m_WeaponMesh);
+
+			UWorld* World = GetWorld();
+
+			// Simply Spawning Actor
+			if (World)
+			{
+				World->SpawnActor<ACasing>(
+					m_CasingClass,
+					// Spawn At "MuzzleFlash" Socket
+					SocketTransform.GetLocation(),
+					SocketTransform.GetRotation().Rotator()
+				);
+			}
+		}
 	}
 }
 

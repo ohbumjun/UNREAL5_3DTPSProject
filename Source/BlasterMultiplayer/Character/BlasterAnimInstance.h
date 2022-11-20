@@ -63,4 +63,11 @@ private :
 
 	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
 	ETurningInPlace m_TurningInPlace;
+
+	// 총구 방향이 HitTarget 을 향할 수 있게 하기 위한 Rotator
+	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
+	FRotator RightHandRotation;
+
+	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
+	bool bLocallyControlled = false;
 };

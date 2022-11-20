@@ -102,13 +102,14 @@ private:
 	class UAnimMontage* m_FireWeaponMontage;
 
 public :
+	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
+	FORCEINLINE float GetAO_Pitch() const { return m_AO_Pitch; }
+	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return m_TurningInPlace; }
+	FORCEINLINE UCameraComponent* GetFollowCamera() const { return m_FollowCamera; }
+
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();
 	bool IsAiming();
-
-	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
-	FORCEINLINE float GetAO_Pitch() const { return m_AO_Pitch; }
 	class AWeapon* GetEquippedWeapon();
-
-	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return m_TurningInPlace; }
+	FVector GetHitTarget() const;
 };

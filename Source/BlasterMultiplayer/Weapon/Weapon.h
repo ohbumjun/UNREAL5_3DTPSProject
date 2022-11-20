@@ -27,11 +27,38 @@ public:
 
 public:	
 	virtual void Tick(float DeltaTime) override;
+
 	// CombatComponent -> 무기를 Equip 하는 순간 Weapon Actor 와 관련된 변수들 일부도 Replicate 되도록 하고 싶다.
 	// GetLifetimeReplicatedProps() 에서 Replicate 되도록 하는 변수를 세팅할 것이다.
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 	void ShowPickupWidget(bool bShowWidget);
+
 	virtual void Fire(const FVector& HitTarget);
+
+	/*
+	* Textures for weapon crosshairs
+	*/
+	UPROPERTY(EditAnywhere, Category = Crosshairs)
+		class UTexture2D* m_CrosshairCenter;
+	UPROPERTY(EditAnywhere, Category = Crosshairs)
+		class UTexture2D* m_CrosshairLeft;
+	UPROPERTY(EditAnywhere, Category = Crosshairs)
+		class UTexture2D* m_CrosshairRight;
+	UPROPERTY(EditAnywhere, Category = Crosshairs)
+		class UTexture2D* m_CrosshairTop;
+	UPROPERTY(EditAnywhere, Category = Crosshairs)
+		class UTexture2D* m_CrosshairBottom;
+
+	/*
+	Zoomed FOV While Aiming => For Zoom While Aiming
+	- 무기마다 아래의 값을 다르게 해주기 위해서 Blueprint 상에서 Edit 할 수 있게 한다.
+	*/
+	UPROPERTY(EditAnywhere)
+		float m_ZoomedFOV = 30.f;
+	UPROPERTY(EditAnywhere)
+		float m_ZoomInterpSpeed = 20.f;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -73,9 +100,17 @@ private :
 	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
 	class UAnimationAsset* m_FireAnimation;
 
+
+	// 사용할 Bullet Class 장착
+	UPROPERTY(EditAnywhere)
+	TSubclassOf<class ACasing> m_CasingClass;
+
+
 public :
 	// FORCEINLINE == inline 키워드
 	void SetWeaponState(EWeaponState State);
 	FORCEINLINE USphereComponent* GetAreaSphere() const { return m_AreaSphere; }
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return m_WeaponMesh; }
+	FORCEINLINE float GetZoomedFOV() const { return m_ZoomedFOV; }
+	FORCEINLINE float GetZoomedInterpSpeed() const { return m_ZoomInterpSpeed; }
 };

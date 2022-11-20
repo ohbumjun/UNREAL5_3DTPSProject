@@ -48,8 +48,13 @@ protected:
 	void MulticastFire(const FVector_NetQuantize& TraceHitTarget);
 
 	void TraceUnderCrosshairs(FHitResult& TraceHit);
+
+	// Call Tick Component
+	void SetHUDCrosshairs(float DeltaTime);
 private :
 	class ABlasterCharacter* m_BlasterCharacter;
+	class ABlasterPlayerController* m_Controller;
+	class ABlasterHUD* m_HUD;
 
 	// 해당 변수가 nullptr 인지 아닌지를 BlasterAnimInstance 의 NativeUpdateAnimation 가 실시간으로 체크한다.
 	// 따라서 EquipWeapon 을 할 때마다 Replicated  되도록 해야 한다.
@@ -68,9 +73,29 @@ private :
 	
 	bool m_FireButtonPressed;
 
-	// 해당 변수 대신, 각 Client 에서 Fire시에 HitTarget 을 구한 다음, FVector_NetQuantize 를 통해 RPC 호출하여
-	// BroadCasting 할 것이다 -> 그래야만 모든 기계에서 동일한 HitTarget 으로 동기화 될 수 있기 때문이다.
-	// FVector m_HitTarget;
+	/*
+	HUD and Crosshairs
+	*/
+	float m_CrosshairVelocityFactor;
+	float m_CrosshairInAirFactor;
+
+	/*
+	* Aiming and FOV
+	*/
+	// FOV When Not Aiming; Set to the camera's base fov in BeginPlay
+	float m_DefaultFOV;
+	float m_CurrentFOV;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	float m_ZoomedFOV = 30.f;
+
+	UPROPERTY(EditAnywhere, Category = Combat)
+	float m_ZoomInterpSpeed = 20.f;
+
+	// BlasterAnimInstance 에서 현재 총구를, 총을 쏴야할 방향으로 Rotate 시키는데 사용되고 있다.
+	FVector m_HitTarget;
+
+	void InterpFOV(float DeltaTime);
 
 public :
 };

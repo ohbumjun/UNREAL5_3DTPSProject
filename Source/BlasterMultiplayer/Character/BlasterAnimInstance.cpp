@@ -96,5 +96,46 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		// 즉, 쉽게 말하면 1) LeftHandSocket 의 World Space 에 접근
 		// 2) 오른손 Bone 에 대한 LeftHandSocket 의 Bone Space 정보를 LeftTransform 에 저장한 것이다.
 		// 이를 Animation Blueprint 에서 사용할 것이다.
+
+		// 총구 방향으로 Hit Target 쪽으로 회전하는 로직을 위해서는 HitTarget 을 실시간으로 Replicate 해야 하지만
+		// BandWidth가 커진다. 그냥 안한다. Locally Control 일 때만 적용할 것이다.
+		if (m_BlasterCharacter->IsLocallyControlled())
+		{
+			bLocallyControlled = true;
+
+			// Weapon 이 정확하게 Aim 하는 방향을 바라보게 할 것이다
+			// 먼저 RightHand 에 해당하는 Bone을 가져올 것이다. (왜 ? Mesh 상에서 총을 들고 있는 Hand 가 해당 Bone 이므로)
+			// FTransform RightHandTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(
+			FTransform RightHandTransform = m_BlasterCharacter->GetMesh()->GetSocketTransform(
+				FName("hand_r"),
+				ERelativeTransformSpace::RTS_World);
+
+			// hand_r 를 보면 X 축이 몸쪽으로 향하고 있다. 즉, Gun 이 향하는 방향과 반대이다. 이를 반영한다.
+			RightHandRotation = UKismetMathLibrary::FindLookAtRotation(
+				RightHandTransform.GetLocation(),
+				RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - m_BlasterCharacter->GetHitTarget()));
+		}
+		
+
+
+		/* <디버그 용도>
+		// 특정 Socket 의 World Transform 위치를 가져온다. (총구에 해당하는 Socket)
+		FTransform MuzzleTipTransform = EquippedWeapon->GetWeaponMesh()->GetSocketTransform(FName("MuzzleFlash"),
+			ERelativeTransformSpace::RTS_World);
+		
+		// 총구가 바라보는 방향을 구한다. -> 현재 사용하는 Weapon Mesh 의 MuzzleFlash Socket 을 보면
+		// X 축을 바라보고 있는 것을 확인할 수 있다.
+		// 따라서 해당 Socket 이 바라보는 X 축 방향을 가져올 것이다. 
+		// 위에서 World Transform 정보를 가져왔으므로, 월드 Space X 축 기준으로의 정보를 가져오게 된다.
+		FVector MuzzleX(FRotationMatrix(MuzzleTipTransform.GetRotation().Rotator()).GetUnitAxis(EAxis::X));
+
+		// MuzzleFlash Socket 총구가 바라보는 방향으로 선 그리기
+		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), 
+			MuzzleTipTransform.GetLocation() + MuzzleX * 1000.f, FColor::Red);
+
+		// Draw Line From MuzzleFlash -> Hit Point
+		DrawDebugLine(GetWorld(), MuzzleTipTransform.GetLocation(), m_BlasterCharacter->GetHitTarget(),
+			FColor::Orange);
+		*/
 	}
 }
