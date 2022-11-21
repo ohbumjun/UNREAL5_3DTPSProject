@@ -42,6 +42,7 @@ public:
 	virtual void OnRep_ReplicatedMovement() override;
 
 	// Called When Player Gets Elimmed
+	UFUNCTION(NetMulticast, Reliable)
 	void Elim();
 
 protected:
@@ -163,12 +164,15 @@ private:
 
 	class ABlasterPlayerController* m_BlasterPlayerController;
 
+	bool m_bElimmed = false;
+
 public :
 	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
 	FORCEINLINE float GetAO_Pitch() const { return m_AO_Pitch; }
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return m_TurningInPlace; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return m_FollowCamera; }
 	FORCEINLINE bool ShouldRotateRootBone() const { return m_bRotateRootBone; }
+	FORCEINLINE bool IsElimmed() const { return m_bElimmed; }
 
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();

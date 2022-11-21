@@ -46,6 +46,8 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 
 	bRotateRootBone = m_BlasterCharacter->ShouldRotateRootBone();
 
+	bElimmed = m_BlasterCharacter->IsElimmed();
+
 	// 아래 관련 변수들은 이미 Replicate 되고 있기 때문에, 별도로 Replicate 처리를 해줄 필요가 없다.
 	// 1) Offset Yaw For Strafing
 	// YawOffset 을 구하기 위해서는 어떤 방향으로 움직이는지, 어떤 방향으로 Aiming 하는지를 살펴봐야 한다. (PlayerController 가 Pointing 하는 곳)
