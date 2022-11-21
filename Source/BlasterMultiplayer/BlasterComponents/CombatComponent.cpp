@@ -12,7 +12,7 @@
 #include "Kismet/GameplayStatics.h"
 #include "DrawDebugHelpers.h"
 #include "../PlayerController/BlasterPlayerController.h"
-#include "../HUD/BlasterHUD.h"
+#include "TimerManager.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -53,68 +53,20 @@ void UCombatComponent::BeginPlay()
 
 }
 
-void UCombatComponent::SetAiming(bool bIsAiming)
+// Called every frame
+void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
-	// 여기서 바로 값을 변경해주는 이유
-	// 일반적으로 RPC는 Delay 가 생길 수 있다. 즉, 내가 마우스를 누르는 시점과, RPC 를 거쳐서 이를 통해 실제 값이 변경되는 데 까지는
-	// 시간 차이가 존재할 수도 있다.
-	// 코드상으로 말을 하면 아래의 코드가 ServerSetAiming_Implementation() 라는 RPC 를 실행하기도 전에
-	// 실행될 수 있다는 것이다.
-	// 이것이 우리가 정확히 원하는 것이다. 우리는 네트워크 속도와 관계없이 우선은, 해당 버튼을 누른
-	// 클라이언트던 서버던 local 에서는 바로 변화가 있기를 원하기 때문이다.
-	// 만약 해당 줄을 넣지 않으면 클라이언트 입장에서는 SetAiming 함수를 호출하고도, RPC 호출 -> replicate 될 때까지 기다리게 될 것이다.
-	m_bAiming = bIsAiming;
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	/* 1st Version
-	
-	// 서버가 아니라면, RPC 호출
-	if (m_BlasterCharacter->HasAuthority() == false)
+	if (m_BlasterCharacter && m_BlasterCharacter->IsLocallyControlled())
 	{
-		ServerSetAiming(bIsAiming);
-	}
-	// Server 에서는 별다른 조치를 취하지 않는다. 
-	// if 문 위의 코드에서 m_bAiming = bIsAiming; 라고 바로 세팅해뒀고
-	// 해당 변수를 replicated 변수로 등록했기 때문에 괜찮다는 것이다.
+		FHitResult HitResult;
+		TraceUnderCrosshairs(HitResult);
+		m_HitTarget = HitResult.ImpactPoint;
 
-	*/
-	
-	// 2nd Version
-	// Unreal Document 를 참고하면, Server 측에서, Server RPC 를 호출하면 자동으로 Server 에서 해당 코드가 실행된다.
-	// 마찬가지로 클라이언트 측에서 , Server RPC 를 호출해도 Server 에서 해당 코드가 실행된다.
-	// 그러면, 사실상 if 문을 통해서 분기문을 작성할 필요가 없다는 것이다.
-	// m_bAiming 는 replicate 해 두었기 때문에, 어떤 상황에서든 모든 클라이언트 측으로 변경사항이 반영될 것이다
-	ServerSetAiming(bIsAiming);
+		SetHUDCrosshairs(DeltaTime);
 
-	// 이동 속도 줄이기 (해당 함수는 서버, 클라이언트에서 모두 호출되는 함수이다)
-	if (m_BlasterCharacter)
-	{
-		m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = bIsAiming ? m_AimWalkSpeed : m_BaseWalkSpeed;
-	}
-}
-
-void UCombatComponent::ServerSetAiming_Implementation(bool bIsAiming)
-{
-	m_bAiming = bIsAiming;
-
-	// GetCharacterMovement()->MaxWalkSpeed 의 경우, GetCharacterMovement() 에 해당하는 컴포넌트가 
-	// 계속 기존의 MaxWalkSpeed로 유지하려는 경향이 있다.
-	// 하지만 이렇게 Server RPC 를 통해서 호출해주면, 유지안해주고, 우리가 원하는 값으로 Update 시켜준다.
-	if (m_BlasterCharacter)
-	{
-		m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = bIsAiming ? m_AimWalkSpeed : m_BaseWalkSpeed;
-	}
-}
-
-// Rap Notify 이다.
-// 해당 함수가 호출되었다는 것은 m_EquippedWeapon 에 변화가 발생했다는 것
-// 즉, 무기를 장착했거나 버렸다는 것
-void UCombatComponent::OnRep_EquippedWeapon()
-{
-	if (m_EquippedWeapon && m_BlasterCharacter)
-	{
-		m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
-
-		m_BlasterCharacter->bUseControllerRotationYaw = true;
+		InterpFOV(DeltaTime);
 	}
 }
 
@@ -129,7 +81,7 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 	// 여기서 중요한 것이 있다. 이렇게 ServerRPC 만 호출하면, 실행이 Server 에서만 된다.
 	// 즉, 실제 Client 에서든 서버에서든 Fire 버튼을 누르면 Server 에 해당하는 Machine 에서만 Fire 모션이 보인다.
 	// 물론, m_FireButtonPressed 를 replicate 하고, Rap_Notify 를 실행하면 해결할 수 있다.
-	
+
 	// 하지만, 이것을 하고 싶지는 않다.
 	// 우리는 계속해서 Fire Button 을 누르고 있을 수 있다 (Left Mouse Button)
 	// 그러면 m_FireButtonPressed 는 계속 true 로 남아있을 것이다. 변하지 않는다는 것이다.
@@ -142,175 +94,67 @@ void UCombatComponent::FireButtonPressed(bool bPressed)
 	// 서버에서 Multicast RPC  를 호출하면, 서버와 클라이언트 모두에서 실행하게 된다는 것이다.
 	// 클라이언트에서 호출하면 Invoking Client 에서만 실행된다. 따라서 모든 클라이언트에 BroadCast 해주려면
 	// 사실상 서버에서 Multicast RPC 를 호출해주어야 한다.
-	if (m_FireButtonPressed)
+	if (m_FireButtonPressed && m_EquippedWeapon)
 	{
-		FHitResult HitResult;
-
-		TraceUnderCrosshairs(HitResult);
-
-		ServerFire(HitResult.ImpactPoint);
+		Fire();
 	}
 }
 
-void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
+void UCombatComponent::StartFireTimer()
 {
-	// trace From Center Of Screen -> Need ViewPort Size
-	FVector2D ViewPortSize;
+	UE_LOG(LogTemp, Warning, TEXT("StartFireTimer"))
 
-	if (GEngine && GEngine->GameViewport)
-	{
-		GEngine->GameViewport->GetViewportSize(ViewPortSize);
-	}
+		if (m_EquippedWeapon == nullptr || m_BlasterCharacter == nullptr)
+			return;
 
-	// Crosshair Location = Center Of ViewPort
-	FVector2D CrosshairLocation(ViewPortSize.X / 2.f, ViewPortSize.Y / 2.f);
-
-	// Upper Result : Screen Space -> Need To Convert To World Space
-	FVector CrosshairWorldPosition;
-	FVector CrosshairWorldDirection;
-
-	// 각 Machine 에서 Player0 => Player Who Is Controlling The Pawn (즉, 자기 자신)
-	bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
-		UGameplayStatics::GetPlayerController(this, 0),
-		CrosshairLocation,
-		CrosshairWorldPosition,
-		CrosshairWorldDirection // Unit Vector
+	m_BlasterCharacter->GetWorldTimerManager().SetTimer(
+		m_FireTimer,
+		this,
+		&UCombatComponent::FireTimerFinished,
+		m_EquippedWeapon->m_FireDelay
 	);
-
-	// Successful Got World Pos Of Screen Center, Direction
-	if (bScreenToWorld)
-	{
-		// Start Pos Line Trace
-		FVector Start = CrosshairWorldPosition;
-
-		// Move Foward By Enough Distances
-		FVector End = Start + CrosshairWorldDirection * TRACE_LENGTH;
-
-		// TraceHit : Filled In By Below Function
-		GetWorld()->LineTraceSingleByChannel(
-			TraceHitResult,
-			Start,
-			End,
-			ECollisionChannel::ECC_Visibility
-		);
-
-		// No Blocking Hit
-		if (TraceHitResult.bBlockingHit == false)
-		{ 
-			TraceHitResult.ImpactPoint = End;
-
-			// m_HitTarget = End;
-		}
-		else
-		{
-			// Working
-			// Draw Sphere
-			// DrawDebugSphere(
-			// 	GetWorld(),
-			// 	TraceHitResult.ImpactPoint,
-			// 	12.f,
-			// 	12.f,
-			// 	FColor::Red,
-			// 	false, // Draw Debug Sphere Every Frame
-			// 	-1.f   // Draw Debug Sphere Every Frame
-			// );
-
-			// HitTarget 변수로 세팅
-			// m_HitTarget = TraceHitResult.ImpactPoint;
-		}
-	}
 }
 
-// Called Every Frame
-void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
+void UCombatComponent::FireTimerFinished()
 {
-	// Access HUD by PlayerController
-	if (m_BlasterCharacter == nullptr)
-		return;
+	UE_LOG(LogTemp, Warning, TEXT("FireTimerFinished"))
 
-	m_Controller = m_Controller == nullptr ? Cast<ABlasterPlayerController>(m_BlasterCharacter->Controller) : m_Controller;
+		if (m_EquippedWeapon == nullptr)
+			return;
 
-	if (m_Controller)
+	m_bCanFire = true;
+
+	if (m_FireButtonPressed && m_EquippedWeapon->m_bAutomatic)
 	{
-		// Set HUD
-		m_HUD = m_HUD == nullptr ? Cast<ABlasterHUD>(m_Controller->GetHUD()) : m_HUD;
-
-		if (m_HUD)
-		{
-			FHUDPackage HUDPackage;
-
-			if (m_EquippedWeapon)
-			{
-				// Create FHUD Package With CrossHair Textures & Set It To BlasterCharacter
-				HUDPackage.CrosshairsCenter = m_EquippedWeapon->m_CrosshairCenter;
-				HUDPackage.CrosshairsLeft = m_EquippedWeapon->m_CrosshairLeft;
-				HUDPackage.CrosshairsRight = m_EquippedWeapon->m_CrosshairRight;
-				HUDPackage.CrosshairsTop = m_EquippedWeapon->m_CrosshairTop;
-				HUDPackage.CrosshairsBottom = m_EquippedWeapon->m_CrosshairBottom;
-			}
-			else
-			{
-				// If No Weapon Equipped, We will have no crosshairs
-				HUDPackage.CrosshairsCenter = nullptr;
-				HUDPackage.CrosshairsLeft = nullptr;
-				HUDPackage.CrosshairsRight = nullptr;
-				HUDPackage.CrosshairsTop = nullptr;
-				HUDPackage.CrosshairsBottom = nullptr;
-			}
-
-			// Calculate Crosshairs Spread
-			// - Charcter 의 Speed 에 따라 크기가 조금씩 달라지게 할 것이다
-			// [0, 600] -> [0, 1] (최대 속도가 600이라고 한다면, 비율에 따라 0과 1 범위로 mapping 시킬 것이다)
-			FVector2D WalkSpeedRange(0.f, m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed);
-			FVector2D VelocityMultiplierRange(0, 1.f);
-
-			FVector Velocity = m_BlasterCharacter->GetVelocity();
-			Velocity.Z = 0.f;
-
-			m_CrosshairVelocityFactor = FMath::GetMappedRangeValueClamped(WalkSpeedRange, VelocityMultiplierRange, Velocity.Size());
-
-			// In Air ->Spread More Slowly -> Interpolate Using DeltaTime
-			if (m_BlasterCharacter->GetCharacterMovement()->IsFalling())
-			{
-				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 2.25f, DeltaTime, 2.25f);
-			}
-			else
-			{
-				// when hit ground -> interpolate to 0 with much faster 
-				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 0.f, DeltaTime, 30.f);
-			}
-
-			HUDPackage.CrosshairSpread = m_CrosshairVelocityFactor + m_CrosshairInAirFactor;
-
-			m_HUD->SetHUDPackage(HUDPackage);
-
-			
-		}
+		Fire();
 	}
 }
 
-void UCombatComponent::InterpFOV(float DeltaTime)
+void UCombatComponent::Fire()
 {
-	if (m_EquippedWeapon == nullptr)
-		return;
-	
-	if (m_bAiming)
-	{
-		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_EquippedWeapon->GetZoomedFOV(),
-			DeltaTime, m_EquippedWeapon->GetZoomedInterpSpeed());
-	}
-	else
-	{
-		// Interp Back To Default FOV , at Default Speed
-		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_DefaultFOV, DeltaTime,
-			m_ZoomInterpSpeed);
-	}
+	UE_LOG(LogTemp, Warning, TEXT("Fire Function"));
 
-	if (m_BlasterCharacter && m_BlasterCharacter->GetFollowCamera())
+	if (m_bCanFire)
 	{
-		m_BlasterCharacter->GetFollowCamera()->SetFieldOfView(m_CurrentFOV);
+		UE_LOG(LogTemp, Warning, TEXT("Fire Function Yes ! m_bCanFire = true"));
+
+		ServerFire(m_HitTarget);
+
+		// Affect Cross Hair Shooting Factor
+		if (m_EquippedWeapon)
+		{
+			m_CrosshairShootingFactor = 0.6f;
+
+			// FireTimer 가 Finish 될 때까지는 false 로 세팅하게 할 것이다.
+			m_bCanFire = false;
+		}
+
+		// Automatic fire 가 true 인 경우
+		// 계속해서 Fire Button 을 누르고 있다면, 정기적으로 다시 Fire 를 할 수 있게 하기 위함
+		StartFireTimer();
 	}
 }
+
 
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
@@ -347,26 +191,6 @@ void UCombatComponent::ServerFire_Implementation(const FVector_NetQuantize& Trac
 {
 	MulticastFire(TraceHitTarget);
 }
-
-// Called every frame
-void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
-{
-	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-
-
-	if (m_BlasterCharacter && m_BlasterCharacter->IsLocallyControlled())
-	{
-		FHitResult HitResult;
-		TraceUnderCrosshairs(HitResult);
-		m_HitTarget = HitResult.ImpactPoint;
-		
-		SetHUDCrosshairs(DeltaTime);
-	
-		InterpFOV(DeltaTime);
-	}
-}
-
 
 void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 {
@@ -408,3 +232,266 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	m_BlasterCharacter->bUseControllerRotationYaw = true;
 }
 
+// Rap Notify 이다.
+// 해당 함수가 호출되었다는 것은 m_EquippedWeapon 에 변화가 발생했다는 것
+// 즉, 무기를 장착했거나 버렸다는 것
+void UCombatComponent::OnRep_EquippedWeapon()
+{
+	if (m_EquippedWeapon && m_BlasterCharacter)
+	{
+		m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
+
+		m_BlasterCharacter->bUseControllerRotationYaw = true;
+	}
+}
+
+void UCombatComponent::TraceUnderCrosshairs(FHitResult& TraceHitResult)
+{
+	// trace From Center Of Screen -> Need ViewPort Size
+	FVector2D ViewPortSize;
+
+	if (GEngine && GEngine->GameViewport)
+	{
+		GEngine->GameViewport->GetViewportSize(ViewPortSize);
+	}
+
+	// Crosshair Location = Center Of ViewPort
+	FVector2D CrosshairLocation(ViewPortSize.X / 2.f, ViewPortSize.Y / 2.f);
+
+	// Upper Result : Screen Space -> Need To Convert To World Space
+	FVector CrosshairWorldPosition;
+	FVector CrosshairWorldDirection;
+
+	// 각 Machine 에서 Player0 => Player Who Is Controlling The Pawn (즉, 자기 자신)
+	bool bScreenToWorld = UGameplayStatics::DeprojectScreenToWorld(
+		UGameplayStatics::GetPlayerController(this, 0),
+		CrosshairLocation,
+		CrosshairWorldPosition,
+		CrosshairWorldDirection // Unit Vector
+	);
+
+	// Successful Got World Pos Of Screen Center, Direction
+	if (bScreenToWorld)
+	{
+		// Start Pos Line Trace
+		FVector Start = CrosshairWorldPosition;
+
+		// 실제 LineTrace 위치는, 캐릭터 위치 앞쪽에서 시작해야 한다.
+		// 그런데 기본적으로 Camera 는, 현재 캐릭터보다 뒤쪽에서 바라보고 있다.
+		// 따라서 시작 위치를 Character 앞쪽으로 조정해주어야 한다. (100.f 즈음으로 세팅해줄 것이다)
+		if (m_BlasterCharacter)
+		{
+			float DistanceToCharacter = (m_BlasterCharacter->GetActorLocation() - Start).Size();
+
+			Start += CrosshairWorldDirection * (DistanceToCharacter + 100.f);
+
+			// DrawDebugSphere(GetWorld(), Start, 16.f, 12, FColor::Red, false);
+		}
+
+		// Move Foward By Enough Distances
+		FVector End = Start + CrosshairWorldDirection * TRACE_LENGTH;
+
+		// TraceHit : Filled In By Below Function
+		GetWorld()->LineTraceSingleByChannel(
+			TraceHitResult,
+			Start,
+			End,
+			ECollisionChannel::ECC_Visibility
+		);
+
+		if (TraceHitResult.GetActor() && TraceHitResult.GetActor()->Implements<UInteractWithCrosshairsInterface>())
+		{
+			m_HUDPackage.CrosshairsColor = FLinearColor::Red;
+		}
+		else
+		{
+			m_HUDPackage.CrosshairsColor = FLinearColor::White;
+		}
+
+		// No Blocking Hit
+		if (TraceHitResult.bBlockingHit == false)
+		{
+			TraceHitResult.ImpactPoint = End;
+
+			// m_HitTarget = End;
+		}
+		else
+		{
+			// Working
+			// Draw Sphere
+			// DrawDebugSphere(
+			// 	GetWorld(),
+			// 	TraceHitResult.ImpactPoint,
+			// 	12.f,
+			// 	12.f,
+			// 	FColor::Red,
+			// 	false, // Draw Debug Sphere Every Frame
+			// 	-1.f   // Draw Debug Sphere Every Frame
+			// );
+
+			// HitTarget 변수로 세팅
+			// m_HitTarget = TraceHitResult.ImpactPoint;
+		}
+	}
+}
+
+// Called Every Frame
+void UCombatComponent::SetHUDCrosshairs(float DeltaTime)
+{
+	// Access HUD by PlayerController
+	if (m_BlasterCharacter == nullptr)
+		return;
+
+	m_Controller = m_Controller == nullptr ? Cast<ABlasterPlayerController>(m_BlasterCharacter->Controller) : m_Controller;
+
+	if (m_Controller)
+	{
+		// Set HUD
+		m_HUD = m_HUD == nullptr ? Cast<ABlasterHUD>(m_Controller->GetHUD()) : m_HUD;
+
+		if (m_HUD)
+		{
+
+			if (m_EquippedWeapon)
+			{
+				// Create FHUD Package With CrossHair Textures & Set It To BlasterCharacter
+				m_HUDPackage.CrosshairsCenter = m_EquippedWeapon->m_CrosshairCenter;
+				m_HUDPackage.CrosshairsLeft = m_EquippedWeapon->m_CrosshairLeft;
+				m_HUDPackage.CrosshairsRight = m_EquippedWeapon->m_CrosshairRight;
+				m_HUDPackage.CrosshairsTop = m_EquippedWeapon->m_CrosshairTop;
+				m_HUDPackage.CrosshairsBottom = m_EquippedWeapon->m_CrosshairBottom;
+			}
+			else
+			{
+				// If No Weapon Equipped, We will have no crosshairs
+				m_HUDPackage.CrosshairsCenter = nullptr;
+				m_HUDPackage.CrosshairsLeft = nullptr;
+				m_HUDPackage.CrosshairsRight = nullptr;
+				m_HUDPackage.CrosshairsTop = nullptr;
+				m_HUDPackage.CrosshairsBottom = nullptr;
+			}
+
+			// Calculate Crosshairs Spread
+			// - Charcter 의 Speed 에 따라 크기가 조금씩 달라지게 할 것이다
+			// [0, 600] -> [0, 1] (최대 속도가 600이라고 한다면, 비율에 따라 0과 1 범위로 mapping 시킬 것이다)
+			FVector2D WalkSpeedRange(0.f, m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed);
+			FVector2D VelocityMultiplierRange(0, 1.f);
+
+			FVector Velocity = m_BlasterCharacter->GetVelocity();
+			Velocity.Z = 0.f;
+
+			m_CrosshairVelocityFactor = FMath::GetMappedRangeValueClamped(WalkSpeedRange, VelocityMultiplierRange, Velocity.Size());
+
+			// In Air ->Spread More Slowly -> Interpolate Using DeltaTime
+			if (m_BlasterCharacter->GetCharacterMovement()->IsFalling())
+			{
+				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 2.25f, DeltaTime, 2.25f);
+			}
+			else
+			{
+				// when hit ground -> interpolate to 0 with much faster 
+				m_CrosshairInAirFactor = FMath::FInterpTo(m_CrosshairInAirFactor, 0.f, DeltaTime, 30.f);
+			}
+
+			if (m_bAiming)
+			{
+				// Shrink or Spread Crosshair HUD When Aiming
+				m_CrosshairAimFactor = FMath::FInterpTo(m_CrosshairAimFactor, 0.58f, DeltaTime, 30.f);
+			}
+			else
+			{
+				m_CrosshairAimFactor = FMath::FInterpTo(m_CrosshairAimFactor, 0.f, DeltaTime, 30.f);
+			}
+
+			// Shooting 을 할때, FireButtonPressed 에서 m_CrosshairShootingFactor 가 0.6f 로 세팅되고 있다.
+			// 그런데 다시 항상 0으로 돌아오게 할 것이다. 즉, 슈팅 쏠때 순간 확장 되었다가, 금방 다시 돌아오게 하기
+			m_CrosshairShootingFactor = FMath::FInterpTo(m_CrosshairShootingFactor, 0.f, DeltaTime, 40.f);
+
+			// 0.3f : BaseLine Spread
+			m_HUDPackage.CrosshairSpread = 0.3f +
+				m_CrosshairVelocityFactor +
+				m_CrosshairInAirFactor +
+				-1.f * m_CrosshairAimFactor +
+				m_CrosshairShootingFactor;
+
+			m_HUD->SetHUDPackage(m_HUDPackage);
+
+
+		}
+	}
+}
+
+void UCombatComponent::InterpFOV(float DeltaTime)
+{
+	if (m_EquippedWeapon == nullptr)
+		return;
+
+	if (m_bAiming)
+	{
+		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_EquippedWeapon->GetZoomedFOV(),
+			DeltaTime, m_EquippedWeapon->GetZoomedInterpSpeed());
+	}
+	else
+	{
+		// Interp Back To Default FOV , at Default Speed
+		m_CurrentFOV = FMath::FInterpTo(m_CurrentFOV, m_DefaultFOV, DeltaTime,
+			m_ZoomInterpSpeed);
+	}
+
+	if (m_BlasterCharacter && m_BlasterCharacter->GetFollowCamera())
+	{
+		m_BlasterCharacter->GetFollowCamera()->SetFieldOfView(m_CurrentFOV);
+	}
+}
+
+void UCombatComponent::SetAiming(bool bIsAiming)
+{
+	// 여기서 바로 값을 변경해주는 이유
+	// 일반적으로 RPC는 Delay 가 생길 수 있다. 즉, 내가 마우스를 누르는 시점과, RPC 를 거쳐서 이를 통해 실제 값이 변경되는 데 까지는
+	// 시간 차이가 존재할 수도 있다.
+	// 코드상으로 말을 하면 아래의 코드가 ServerSetAiming_Implementation() 라는 RPC 를 실행하기도 전에
+	// 실행될 수 있다는 것이다.
+	// 이것이 우리가 정확히 원하는 것이다. 우리는 네트워크 속도와 관계없이 우선은, 해당 버튼을 누른
+	// 클라이언트던 서버던 local 에서는 바로 변화가 있기를 원하기 때문이다.
+	// 만약 해당 줄을 넣지 않으면 클라이언트 입장에서는 SetAiming 함수를 호출하고도, RPC 호출 -> replicate 될 때까지 기다리게 될 것이다.
+	m_bAiming = bIsAiming;
+
+	/* 1st Version
+
+	// 서버가 아니라면, RPC 호출
+	if (m_BlasterCharacter->HasAuthority() == false)
+	{
+		ServerSetAiming(bIsAiming);
+	}
+	// Server 에서는 별다른 조치를 취하지 않는다.
+	// if 문 위의 코드에서 m_bAiming = bIsAiming; 라고 바로 세팅해뒀고
+	// 해당 변수를 replicated 변수로 등록했기 때문에 괜찮다는 것이다.
+
+	*/
+
+	// 2nd Version
+	// Unreal Document 를 참고하면, Server 측에서, Server RPC 를 호출하면 자동으로 Server 에서 해당 코드가 실행된다.
+	// 마찬가지로 클라이언트 측에서 , Server RPC 를 호출해도 Server 에서 해당 코드가 실행된다.
+	// 그러면, 사실상 if 문을 통해서 분기문을 작성할 필요가 없다는 것이다.
+	// m_bAiming 는 replicate 해 두었기 때문에, 어떤 상황에서든 모든 클라이언트 측으로 변경사항이 반영될 것이다
+	ServerSetAiming(bIsAiming);
+
+	// 이동 속도 줄이기 (해당 함수는 서버, 클라이언트에서 모두 호출되는 함수이다)
+	if (m_BlasterCharacter)
+	{
+		m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = bIsAiming ? m_AimWalkSpeed : m_BaseWalkSpeed;
+	}
+}
+
+void UCombatComponent::ServerSetAiming_Implementation(bool bIsAiming)
+{
+	m_bAiming = bIsAiming;
+
+	// GetCharacterMovement()->MaxWalkSpeed 의 경우, GetCharacterMovement() 에 해당하는 컴포넌트가 
+	// 계속 기존의 MaxWalkSpeed로 유지하려는 경향이 있다.
+	// 하지만 이렇게 Server RPC 를 통해서 호출해주면, 유지안해주고, 우리가 원하는 값으로 Update 시켜준다.
+	if (m_BlasterCharacter)
+	{
+		m_BlasterCharacter->GetCharacterMovement()->MaxWalkSpeed = bIsAiming ? m_AimWalkSpeed : m_BaseWalkSpeed;
+	}
+}

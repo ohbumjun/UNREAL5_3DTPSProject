@@ -21,6 +21,8 @@ public :
 
 	// How much we should spread crosshairs (x,y 방향으로 같은 정도로 spread, shrink)
 	float CrosshairSpread;
+
+	FLinearColor CrosshairsColor;
 };
 
 /**
@@ -35,6 +37,14 @@ public  :
 	// Called Every Frame
 	virtual void DrawHUD() override;
 
+	UPROPERTY(EditAnywhere, Category = "Player Stats")
+	TSubclassOf<class UUserWidget> m_CharacterOverlayClass;
+
+	class UCharacterOverlay* m_CharacterOverlay;
+
+protected :
+	virtual void BeginPlay() override;
+	void AddCharacterOverlay();
 private :
 	// Texture For Drawing Cross Hair
 	FHUDPackage m_HUDPackage;
@@ -42,7 +52,8 @@ private :
 	UPROPERTY(EditAnywhere)
 	float m_CrosshairSpreadMax = 16.f;
 
-	void DrawCrosshair(UTexture2D* Texture, FVector2D ViewportCenter, FVector2D Spread);
+	void DrawCrosshair(UTexture2D* Texture, FVector2D ViewportCenter, FVector2D Spread,
+		FLinearColor CrosshairColor);
 public :
 	FORCEINLINE void SetHUDPackage(const FHUDPackage& Package) { m_HUDPackage = Package; }
 };

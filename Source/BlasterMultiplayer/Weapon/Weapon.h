@@ -58,6 +58,10 @@ public:
 		float m_ZoomedFOV = 30.f;
 	UPROPERTY(EditAnywhere)
 		float m_ZoomInterpSpeed = 20.f;
+	UPROPERTY(EditAnywhere, Category = Combat)
+		float m_FireDelay = 0.15f;
+	UPROPERTY(EditAnywhere, Category = Combat)
+		bool m_bAutomatic = true;
 
 protected:
 	// Called when the game starts or when spawned

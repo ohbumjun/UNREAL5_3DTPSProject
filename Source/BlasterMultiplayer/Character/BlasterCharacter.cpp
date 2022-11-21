@@ -11,6 +11,9 @@
 #include "Components/CapsuleComponent.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "BlasterAnimInstance.h"
+#include "../PlayerController/BlasterPlayerController.h"
+#include "../BlasterMultiplayer.h"
+#include "../GameMode/BlasterGameMode.h"
 
 ABlasterCharacter::ABlasterCharacter()
 {
@@ -49,7 +52,15 @@ ABlasterCharacter::ABlasterCharacter()
 	// 마우스 아래로 하면 카메라 줌인 되는 효과 제거
 	GetCapsuleComponent()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Camera, ECollisionResponse::ECR_Ignore);
+	// CombatComponent 측에서 LineTrace 를 통해 총을 쏠 위치 정보를 구하고 있다.
+	// 그리고 다른 Character 를 쏠 경우, Crosshairs UI 를 빨간색으로 만들어야 한다.
+	// LineTrace 의 channel 이 visibility 이다. LineTrace 를 통해 다른 Character 가 충돌되도록 인식하게 하기 위해서는
+	// Mesh 가 Visibility Collision Channel 을 Block 으로 세팅해줄 것이다. 
+	GetMesh()->SetCollisionResponseToChannel(ECollisionChannel::ECC_Visibility, ECollisionResponse::ECR_Block);
 
+	// ProjectTile.cpp (생성자 참고) => 총이 맞게 하기 위한 Custom Collision Channel
+	GetMesh()->SetCollisionObjectType(ECC_SkeletalMesh);
+		
 	// Player Character 가 움직이는 방향으로 얼마나 빨리 돌것인가 (Z축 -> 언리얼에서는 위쪽을 향한다.)
 	GetCharacterMovement()->RotationRate = FRotator(0.f, 0.f, 720.f);
 
@@ -91,13 +102,46 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 void ABlasterCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+
+	// 처음 시작시에 Health Value 세팅하기 
+	UpdateHUDHealth();
+	
+	// Damage 에 대한 Event Callback 은 Server 에만 bind 할 것이다
+	if (HasAuthority())
+	{
+		OnTakeAnyDamage.AddDynamic(this, &ThisClass::ReceiveDamage);
+	}
 }
 
 void ABlasterCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	AimOffset(DeltaTime);
+	// Only Rotate Root Bone For Player Actually Controlling The Character
+	//  IsLocallyControlled() 가 없으면, 다른 기계에서 Play 되는 캐릭터 -> 해당 캐릭터의 서버 버전도 AimOffset 을 호출하게 된다.
+	// IsLocallyControlled() 를 해주면, Character 를 Play 하는 기계에서만 동작하게 할 것이다.
+	if (GetLocalRole() > ENetRole::ROLE_SimulatedProxy && IsLocallyControlled())
+	{
+		AimOffset(DeltaTime);
+	}
+	// Tick Function 에서가 아니라 SimProxiesTurn 에서 처리해줄 것이다.
+	// else
+	// {
+	// 	SimProxiesTurn();
+	// }
+	else
+	{
+		m_TimeSinceLastMovementReplication += DeltaTime;
+
+		if (m_TimeSinceLastMovementReplication > 0.05f)
+		{
+			OnRep_ReplicatedMovement();
+		}
+		
+		CalculateAO_Pitch();
+	}
+
+	HideCameraIfCharacterClose();
 }
 
 void ABlasterCharacter::MoveForward(float Value)
@@ -233,6 +277,7 @@ void ABlasterCharacter::AimButtonReleased()
 }
 
 // 57 강
+// - Calculate AO_Yaw Variable
 void ABlasterCharacter::AimOffset(float DeltaTime)
 {
 	// No Weapon ? return
@@ -240,14 +285,14 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 		return;
 
 	// Not Executed When Running Or In Air (Jumping)
-	FVector Velocity = GetVelocity();
-	Velocity.Z = 0.f;
-	float Speed = Velocity.Size();
+	float Speed =CalculateSpeed();
 
 	bool bIsInAir = GetCharacterMovement()->IsFalling();
 
 	if (Speed == 0.f && !bIsInAir)
 	{
+		m_bRotateRootBone = true;
+
 		// Standing Still !
 		FRotator CurrentAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 
@@ -282,6 +327,9 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 
 	if (Speed > 0.f || bIsInAir)
 	{
+		// 뛰거나 IsInAir 일 때는 다시 false 로 만들어서, Rotating Root Bone 을 안하게 한다.
+		m_bRotateRootBone = false;
+
 		// Aim  방향을 현재 Aim 하고 있는 방향으로 세팅한다.
 		m_StartingAimRotation = FRotator(0.f, GetBaseAimRotation().Yaw, 0.f);
 
@@ -294,7 +342,13 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 		m_TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 	}
 
-	m_AO_Pitch = GetBaseAimRotation().Pitch;
+	
+	CalculateAO_Pitch();
+}
+
+
+void ABlasterCharacter::CalculateAO_Pitch()
+{
 	// Setting Pitch
 	/*
 	// 58 강 참고
@@ -304,10 +358,10 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 	어떻게 서버는 해당 클리어언트의 m_AO_Pitch 등의 변수 정보를 알고 있는 것일까
 	즉, 어떻게 클라이언트 측 Character 의 Rotation 정보를 알고 있는 것일까 ? (Client -> Server)
 
-	왜냐하면 CharacterMovementComponent 상에서 알아서 Server 측으로 전달하는 로직을 내부적으로 가지고 있기 때문이다. 
+	왜냐하면 CharacterMovementComponent 상에서 알아서 Server 측으로 전달하는 로직을 내부적으로 가지고 있기 때문이다.
 
 	----
-	
+
 	만약 클라이언트 상에서 단순히 이 값을 세팅한다고 해보자.
 	클라이언트 상에서는 위쪽을 바라보면 0 ~ 90, 아래쪽을 바라보면 0 ~ -90 의 값을 가지게 된다.
 
@@ -323,6 +377,8 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 	ex) CharacterMovementComponent::PackYawAndPitchTo32() 참고
 	*/
 
+	m_AO_Pitch = GetBaseAimRotation().Pitch;
+
 	if (m_AO_Pitch > 90.f && !IsLocallyControlled())
 	{
 		// map pitch from [270 , 360) to [-90,0)
@@ -331,6 +387,80 @@ void ABlasterCharacter::AimOffset(float DeltaTime)
 
 		m_AO_Pitch = FMath::GetMappedRangeValueClamped(InRange, OutRange, m_AO_Pitch);
 	}
+}
+
+float ABlasterCharacter::CalculateSpeed()
+{
+	FVector Velocity = GetVelocity();
+	Velocity.Z = 0.f;
+	// float Speed = Velocity.Size();
+	return Velocity.Size();
+}
+
+// Whenever Actor's Movement Changes, It is replicated, and below function is called
+// -> Call SimProxiesTurn Instead From Tick Function
+// -> Call This Function For The Server That is not Locally Controller
+void ABlasterCharacter::OnRep_ReplicatedMovement()
+{
+	Super::OnRep_ReplicatedMovement();
+
+	SimProxiesTurn();
+
+	// 중요한 것은, 움직이지 않는다면 해당 함수를 호출해주지 않게 된다.
+	// 이를 위해서, 마지막으로 SimProxiesTurn() 를 호출한 시점을 추적해서
+	// 해당 함수를 호출한 지 오래되었다면, 주기적으로 다시 호출해주는 기능을 구현할 것이다.
+	// 여기서는 SimProxiesTurn() 가 호출된 것이므로, 0으로 reset 
+	// 단, 주기적으로 시간에 따라 호출하는 것은 Tick 함수에서 진행해줄 것이다
+	m_TimeSinceLastMovementReplication = 0.f;
+}
+
+// Turning For Simulated Proxy (Rotating Root Bone In Anim Blueprint Only Applied To Server, Local Player)
+// Call This Function When Simulated Proxy Gets Updated
+void ABlasterCharacter::SimProxiesTurn()
+{
+	if (m_CombatComponent == nullptr || m_CombatComponent->m_EquippedWeapon == nullptr)
+		return;
+
+	float Speed = CalculateSpeed();
+
+	// 돌다가 다시 걷거나 하는 등 Speed 가 0 이상이 되면, Turn 하는 상태를 되돌린다.
+	if (Speed > 0.f)
+	{
+		m_TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		return;
+	}
+
+	// 해당 변수는 Anim Blueprint 상에서 Animation Blend 로 사용된다.
+	m_bRotateRootBone = false;
+
+	// 특정 Threadhold 를 정해두고, 해당 값을 Yaw 가 넘어가면 Turn In Animation 을 실행할 것이다.
+	m_ProxyRotationLastFrame = m_ProxyRotation;
+	m_ProxyRotation = GetActorRotation();
+
+	// Calculate Rotation From Last Frame
+	m_ProxyYaw = UKismetMathLibrary::NormalizedDeltaRotator(m_ProxyRotation, m_ProxyRotationLastFrame).Yaw;
+
+	if (FMath::Abs(m_ProxyYaw) > m_TurnThreshold)
+	{
+		if (m_ProxyYaw > m_TurnThreshold)
+		{
+			m_TurningInPlace = ETurningInPlace::ETIP_Right;
+		}
+		else if (m_ProxyYaw < -1 * m_TurnThreshold)
+		{
+			m_TurningInPlace = ETurningInPlace::ETIP_Left;
+		}
+		else
+		{
+			m_TurningInPlace = ETurningInPlace::ETIP_NotTurning;
+		}
+
+		return;
+	}
+
+
+	// Default Behavior
+	m_TurningInPlace = ETurningInPlace::ETIP_NotTurning;
 }
 
 void ABlasterCharacter::Jump()
@@ -398,6 +528,37 @@ void ABlasterCharacter::TurnInPlace(float DeltaTime)
 
 }
 
+// Tick 에서 매 Frame 호출
+void ABlasterCharacter::HideCameraIfCharacterClose()
+{
+	if (IsLocallyControlled() == false)
+		return;
+
+	// 현재 컨트롤하는 Character 가 너무 가까우면 Hide 시킨다.
+	// Locally Controlled 때만 적용되므로, 다른 Player 들은 나의 Character Mesh를 볼 수 있다.
+	if ((m_FollowCamera->GetComponentLocation() - GetActorLocation()).Size() < m_CameraThreadhold)
+	{
+		GetMesh()->SetVisibility(false);
+
+		if (m_CombatComponent && m_CombatComponent->m_EquippedWeapon &&
+			m_CombatComponent->m_EquippedWeapon->GetWeaponMesh())
+		{
+			// 무기도 숨긴다.
+			m_CombatComponent->m_EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = true;
+		}
+	}
+	else
+	{
+		GetMesh()->SetVisibility(true);
+
+		if (m_CombatComponent && m_CombatComponent->m_EquippedWeapon &&
+			m_CombatComponent->m_EquippedWeapon->GetWeaponMesh())
+		{
+			m_CombatComponent->m_EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
+		}
+	}
+}
+
 // Function Only Called From Server
 void ABlasterCharacter::SetOverlappingWeapon(AWeapon* Weapon)
 {
@@ -456,7 +617,8 @@ void ABlasterCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 
 	// 특정 조건을 명시할 수 있다. (이 경우, Owner, 즉, 해당 Pawn 을 컨트롤하고 있는 주체에게만 Replicated 되도록 한다.)
 	DOREPLIFETIME_CONDITION(ABlasterCharacter, m_OverlappingWeapon, COND_OwnerOnly)
-	
+
+	DOREPLIFETIME(ABlasterCharacter, m_Health);
 }
 
 void ABlasterCharacter::PostInitializeComponents()
@@ -488,6 +650,36 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 	}
 }
 
+void ABlasterCharacter::PlayElimMontage()
+{
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+	// Play Fire Montage
+	if (AnimInstance && m_ElimMontage)
+	{
+		AnimInstance->Montage_Play(m_ElimMontage);
+	}
+}
+
+void ABlasterCharacter::PlayHitReactMontage()
+{
+	// m_Equipped Weapon 을 가지고 있어야 한다. 우리가 사용하는 Hit Animation 이 총을 들고 있는 형태이기 때문이다.
+	if (m_CombatComponent == nullptr || m_CombatComponent->m_EquippedWeapon == nullptr)
+		return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+	// Play Fire Montage
+	if (AnimInstance && m_HitReactMontage)
+	{
+		AnimInstance->Montage_Play(m_HitReactMontage);
+
+		// Choose Section Name
+		FName SectionName(TEXT("FromFront"));
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
 bool ABlasterCharacter::IsWeaponEquipped()
 {
 	// m_CombatComponent->m_EquippedWeapon 가 replicated 되도록 해야 한다.
@@ -514,4 +706,56 @@ FVector ABlasterCharacter::GetHitTarget() const
 		return FVector();
 
 	return m_CombatComponent->m_HitTarget;
+}
+
+
+void ABlasterCharacter::OnRep_Health()
+{
+	UpdateHUDHealth();
+	PlayHitReactMontage();
+}
+
+
+void ABlasterCharacter::UpdateHUDHealth()
+{
+	m_BlasterPlayerController = m_BlasterPlayerController == nullptr ?
+		Cast<ABlasterPlayerController>(Controller) :
+		m_BlasterPlayerController;
+
+	if (m_BlasterPlayerController)
+	{
+		m_BlasterPlayerController->SetHUDHealth(m_Health, m_MaxHealth);
+	}
+}
+
+void ABlasterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+	class AController* InstigatorController, AActor* DamageCursor)
+{
+	// 현재 m_Health 는 Replicate 되게 된다. 즉 서버 측에서만 Health 정보가 바뀌게 해두었고, Replication 함수로 등록한
+	// OnRep_Health() 를 다른 기계들에서 호출하게 되는 것이다. (정확하게는 Replication 은 다른 클라이언트들에서 호출,
+	// 서버에서는 호출 X)
+	// 따라서 서버에서도 변화 사항을 적절하게 반영하기 위해 , ReceiveDamage 에서 서버에 적용할 코드를 작성 
+	// (해당 함수는 서버에서만 호출되므로)
+	m_Health = FMath::Clamp(m_Health - Damage, 0.f, m_MaxHealth);
+
+	PlayHitReactMontage();
+
+	UpdateHUDHealth();
+
+	if (m_Health <= 0.f)
+	{
+		ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+
+		if (BlasterGameMode)
+		{
+			m_BlasterPlayerController = m_BlasterPlayerController == nullptr ? Cast<ABlasterPlayerController>(Controller) : m_BlasterPlayerController;
+			ABlasterPlayerController* AttackerController = Cast<ABlasterPlayerController>(InstigatorController);
+			BlasterGameMode->PlayerEliminated(this, m_BlasterPlayerController, AttackerController);
+		}
+	}
+}
+
+void ABlasterCharacter::Elim()
+{
+	PlayElimMontage();
 }

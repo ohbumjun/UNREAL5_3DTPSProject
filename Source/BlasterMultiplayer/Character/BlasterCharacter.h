@@ -5,11 +5,12 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "../BlasterTypes/TurningInPlace.h"
+#include "../Interfaces/InteractWithCrosshairsInterface.h"
 #include "BlasterCharacter.generated.h"
 
 
 UCLASS()
-class BLASTERMULTIPLAYER_API ABlasterCharacter : public ACharacter
+class BLASTERMULTIPLAYER_API ABlasterCharacter : public ACharacter, public IInteractWithCrosshairsInterface
 {
 	GENERATED_BODY()
 
@@ -31,6 +32,18 @@ public:
 	// Called By Combat Component
 	void PlayFireMontage(bool bAiming);
 
+	void PlayElimMontage();
+
+	// Not Very Imporant -> Set As "Unreliable"
+	// => RPC 를 사용하는 대신 ReceiveDamage 라는 함수 안에서 Replicate 을 통해 처리 (Replication 이 더 비용 적다)
+	// UFUNCTION(NetMulticast, Unreliable)
+	// 	void MultiCastHit();
+
+	virtual void OnRep_ReplicatedMovement() override;
+
+	// Called When Player Gets Elimmed
+	void Elim();
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -46,15 +59,23 @@ protected:
 	void AimButtonPressed();
 	void AimButtonReleased();
 	void AimOffset(float DeltaTime);
+	void SimProxiesTurn();
 	virtual void Jump() override; // Character 클래스 kooverride
 	void FireButtonPressed();
 	void FireButtonReleased();
-	
+
+	// Called By AProjectile When Hit
+	void PlayHitReactMontage();
+	// Callback To Damage Event (Damage Triggerd By ex. ProjectBullet Class)
+	UFUNCTION()
+	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
+		class AController* InstigatorController, AActor* DamageCursor);
+
 private:	
-	UPROPERTY(VisibleAnywhere, Category = Camera)
+	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	class USpringArmComponent* m_CameraBoom;
 
-	UPROPERTY(VisibleAnywhere, Category = Camera)
+	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	class UCameraComponent* m_FollowCamera;
 
 	// private  한 변수를 BlueprintReadOnly 하게 하려면 해당 meta 정보가 필요하다
@@ -98,14 +119,56 @@ private:
 	void TurnInPlace(float DeltaTime);
 	
 	// Blueprint 에서 세팅하게 할 것 -> Fire 할 때의 Animation Montage
-	UPROPERTY(EditAnywhere, Category = Combate)
+	UPROPERTY(EditAnywhere, Category = "Combat")
 	class UAnimMontage* m_FireWeaponMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat")
+	class UAnimMontage* m_HitReactMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat") 
+	class UAnimMontage* m_ElimMontage;
+
+	void HideCameraIfCharacterClose();
+
+	UPROPERTY(EditAnywhere)
+	float m_CameraThreadhold = 200.f;
+
+	bool m_bRotateRootBone;
+
+	float m_TurnThreshold = 8.f;
+
+	FRotator m_ProxyRotationLastFrame;
+	FRotator m_ProxyRotation;
+	float m_ProxyYaw;
+	float m_TimeSinceLastMovementReplication;
+
+	void CalculateAO_Pitch();
+
+	float CalculateSpeed();
+
+	/*
+	* Player Health
+	*/
+	UPROPERTY(EditAnywhere, Category = "PlayerStats")
+	float m_MaxHealth = 100.f;
+
+	// Replicate this variable
+	UPROPERTY(ReplicatedUsing = OnRep_Health, VisibleAnywhere, Category = "PlayerStats")
+	float m_Health = 100.f;
+
+	UFUNCTION()
+	void OnRep_Health();
+
+	void UpdateHUDHealth();
+
+	class ABlasterPlayerController* m_BlasterPlayerController;
 
 public :
 	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
 	FORCEINLINE float GetAO_Pitch() const { return m_AO_Pitch; }
 	FORCEINLINE ETurningInPlace GetTurningInPlace() const { return m_TurningInPlace; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return m_FollowCamera; }
+	FORCEINLINE bool ShouldRotateRootBone() const { return m_bRotateRootBone; }
 
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();

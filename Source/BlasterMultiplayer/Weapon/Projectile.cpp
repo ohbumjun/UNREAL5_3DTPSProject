@@ -7,6 +7,8 @@
 #include "Gameframework/ProjectileMovementComponent.h"
 #include "Particles/ParticleSystemComponent.h"
 #include "Particles/ParticleSystem.h"
+#include "../Character/BlasterCharacter.h"
+#include "../BlasterMultiplayer.h"
 
 // Sets default values
 AProjectile::AProjectile()
@@ -25,12 +27,27 @@ AProjectile::AProjectile()
 		ECollisionResponse::ECR_Block);
 	m_CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_WorldStatic, 
 		ECollisionResponse::ECR_Block);
+	
+	// 1_1) Projectile 은 Character 와는 충돌해야 한다. 정확하게는 Character 의 Mesh Component 와 충돌해야 하는데
+	// Mesh Component 의 ObjectType 이 Pawn 이므로, Pawn 과 충돌하게 해야 한다.
+	// m_CollisionBox->SetCollisionResponseToChannel(ECollisionChannel::ECC_Pawn, ECollisionResponse::ECR_Block);
+
+	// 1_2) 하지만, Character 의 경우, Root Component 이 Capsule Component 또한 Object Type 이 Pawn 이다
+	// 우리는 정확하게 Mesh 를 때렸을 때만 적용시키고 싶다.
+	// 따라서 Custom Collision Channel 을 만들어서 Character 의 Mesh 에 적용시키고
+	// 해당 Custom Channel 에 대해서 Block 이 되도록 세팅할 것이다.
+	m_CollisionBox->SetCollisionResponseToChannel(ECC_SkeletalMesh, ECollisionResponse::ECR_Block);
 
 	m_ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>(
 		TEXT("ProjectileMovmentComponent"));
 	// Bullet Keep Rotation Along With Velocity
 	// ex) 중력에 의해 떨어지면 Root Component 의 Rotation 또한 변하게 될 것이다.
 	m_ProjectileMovementComponent->bRotationFollowsVelocity = true;
+
+	// 이건 선택사항 -> ProjectileMovement Speed 설정하기
+	m_ProjectileMovementComponent->InitialSpeed = 8000.f;
+	m_ProjectileMovementComponent->MaxSpeed = 8000.f;
+
 }
 
 // Called when the game starts or when spawned
@@ -62,6 +79,7 @@ void AProjectile::BeginPlay()
 }
 
 // Spawn Partcle And Sound
+// Only Called From Server Side
 void AProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
 	/*

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "../HUD/BlasterHUD.h"
 #include "CombatComponent.generated.h"
 
 #define TRACE_LENGTH 80000.f
@@ -78,6 +79,14 @@ private :
 	*/
 	float m_CrosshairVelocityFactor;
 	float m_CrosshairInAirFactor;
+	float m_CrosshairShootingFactor;
+	float m_CrosshairAimFactor;
+
+	// BlasterAnimInstance 에서 현재 총구를, 총을 쏴야할 방향으로 Rotate 시키는데 사용되고 있다.
+	FVector m_HitTarget;
+
+	FHUDPackage m_HUDPackage;
+
 
 	/*
 	* Aiming and FOV
@@ -92,10 +101,18 @@ private :
 	UPROPERTY(EditAnywhere, Category = Combat)
 	float m_ZoomInterpSpeed = 20.f;
 
-	// BlasterAnimInstance 에서 현재 총구를, 총을 쏴야할 방향으로 Rotate 시키는데 사용되고 있다.
-	FVector m_HitTarget;
-
 	void InterpFOV(float DeltaTime);
+
+	/*
+	* Automatic Fire
+	*/
+	FTimerHandle m_FireTimer;
+
+	bool m_bCanFire = true;
+	
+	void StartFireTimer();
+	void FireTimerFinished();
+	void Fire();
 
 public :
 };

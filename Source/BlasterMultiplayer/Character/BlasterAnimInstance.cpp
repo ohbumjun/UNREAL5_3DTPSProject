@@ -44,6 +44,8 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 
 	m_TurningInPlace = m_BlasterCharacter->GetTurningInPlace();
 
+	bRotateRootBone = m_BlasterCharacter->ShouldRotateRootBone();
+
 	// 아래 관련 변수들은 이미 Replicate 되고 있기 때문에, 별도로 Replicate 처리를 해줄 필요가 없다.
 	// 1) Offset Yaw For Strafing
 	// YawOffset 을 구하기 위해서는 어떤 방향으로 움직이는지, 어떤 방향으로 Aiming 하는지를 살펴봐야 한다. (PlayerController 가 Pointing 하는 곳)
@@ -111,9 +113,14 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 				ERelativeTransformSpace::RTS_World);
 
 			// hand_r 를 보면 X 축이 몸쪽으로 향하고 있다. 즉, Gun 이 향하는 방향과 반대이다. 이를 반영한다.
-			RightHandRotation = UKismetMathLibrary::FindLookAtRotation(
+			
+			FRotator LookAtRotation = UKismetMathLibrary::FindLookAtRotation(
 				RightHandTransform.GetLocation(),
 				RightHandTransform.GetLocation() + (RightHandTransform.GetLocation() - m_BlasterCharacter->GetHitTarget()));
+		
+			// 예를 들어, 먼 곳을 조준하고 있다가, 갑자기 가까운 물체를 조준하게 되면, 총구가 향하는 방향이
+			// 확 바뀔 수 있다. 이를 방지하기 위해서 Interpolation 을 수행하는 것이다.
+			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 20.f);
 		}
 		
 
