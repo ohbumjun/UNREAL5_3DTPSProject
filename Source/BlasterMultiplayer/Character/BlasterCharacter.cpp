@@ -13,6 +13,7 @@
 #include "BlasterAnimInstance.h"
 #include "../PlayerController/BlasterPlayerController.h"
 #include "../BlasterMultiplayer.h"
+#include "TimerManager.h"
 #include "../GameMode/BlasterGameMode.h"
 
 ABlasterCharacter::ABlasterCharacter()
@@ -755,9 +756,34 @@ void ABlasterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 	}
 }
 
-void ABlasterCharacter::Elim_Implementation()
+void ABlasterCharacter::Elim()
+{
+	// MulticastElim 는 서버, 모든 클라이언트에서 실행
+	MulticastElim();
+
+	// 아래 코드는 서버에서만 실행
+	// - Timer 를 세팅해서 일정 기간 마다 Respawn 하게 세팅할 것이다.
+	GetWorldTimerManager().SetTimer(m_ElimTimer,
+		this,
+		&ABlasterCharacter::ElimTimerFinished,
+		m_ElimDelay);
+}
+
+void ABlasterCharacter::MulticastElim_Implementation()
 {
 	m_bElimmed = true;
 
 	PlayElimMontage();
+}
+
+// Only be Called From Server
+void ABlasterCharacter::ElimTimerFinished()
+{
+	// Respawn
+	ABlasterGameMode* BlasterGameMode = GetWorld()->GetAuthGameMode<ABlasterGameMode>();
+
+	if (BlasterGameMode)
+	{
+		BlasterGameMode->RequestRespawn(this, Controller);
+	}
 }

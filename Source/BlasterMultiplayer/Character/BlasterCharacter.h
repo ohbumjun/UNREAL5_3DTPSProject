@@ -43,6 +43,9 @@ public:
 
 	// Called When Player Gets Elimmed
 	UFUNCTION(NetMulticast, Reliable)
+	void MulticastElim();
+
+	// Calling Only On Server
 	void Elim();
 
 protected:
@@ -165,6 +168,14 @@ private:
 	class ABlasterPlayerController* m_BlasterPlayerController;
 
 	bool m_bElimmed = false;
+
+	FTimerHandle m_ElimTimer;
+
+	// 캐릭터마다 서로 다른 ElimDelay 를 가져서는 안된다.
+	UPROPERTY(EditDefaultsOnly)
+	float m_ElimDelay = 3.f;
+
+	void ElimTimerFinished();
 
 public :
 	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
