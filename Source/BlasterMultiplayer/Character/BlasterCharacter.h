@@ -6,6 +6,7 @@
 #include "GameFramework/Character.h"
 #include "../BlasterTypes/TurningInPlace.h"
 #include "../Interfaces/InteractWithCrosshairsInterface.h"
+#include "Components/TimelineComponent.h"
 #include "BlasterCharacter.generated.h"
 
 
@@ -48,6 +49,8 @@ public:
 	// Calling Only On Server
 	void Elim();
 
+	virtual void Destroyed() override;
+
 protected:
 	// Called when the game starts or when spawned
 	virtual void BeginPlay() override;
@@ -75,6 +78,10 @@ protected:
 	void ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
 		class AController* InstigatorController, AActor* DamageCursor);
 
+	void UpdateHUDHealth();
+
+	// Poll for any relevant classes and initizlie out HUD
+	void PollInit();
 private:	
 	UPROPERTY(VisibleAnywhere, Category = "Camera")
 	class USpringArmComponent* m_CameraBoom;
@@ -163,8 +170,7 @@ private:
 	UFUNCTION()
 	void OnRep_Health();
 
-	void UpdateHUDHealth();
-
+	UPROPERTY()
 	class ABlasterPlayerController* m_BlasterPlayerController;
 
 	bool m_bElimmed = false;
@@ -177,6 +183,35 @@ private:
 
 	void ElimTimerFinished();
 
+	/*
+	* Dissolve Effect
+	*/
+	UPROPERTY(VisibleAnywhere)
+	UTimelineComponent* m_DissolveTimeline;
+
+	FOnTimelineFloat m_DissolveTrack;
+
+	// Blueprint 상에서 세팅해줘야 한다.
+	UPROPERTY(EditAnywhere)
+	UCurveFloat* m_DissolveCurve;
+
+	// Called Every Frame As We Are Updating Timeline
+	UFUNCTION()
+	void UpdateDissolveMaterial(float DissolveValue);
+
+	void StartDissolve();
+
+	// Save Dynamic Instance We create / change at run time 
+	// 즉, 아래의 m_DissolveMaterialInstance 를 이용해서 m_DyanamicDissolveMaterialInstance 는 런타임때 생성할 것이다.
+	UPROPERTY(VisibleAnywhere, Category = Elim)
+	UMaterialInstanceDynamic* m_DyanamicDissolveMaterialInstance;
+
+	// Actual material instance set on blueprint, used with dynamic material instance
+	UPROPERTY(EditAnywhere, Category = Elim)
+		UMaterialInstance* m_DissolveMaterialInstance;
+	
+	UPROPERTY()
+	class ABlasterPlayerState* m_BlasterPlayerState;
 public :
 	FORCEINLINE float GetAO_Yaw() const { return m_AO_Yaw; }
 	FORCEINLINE float GetAO_Pitch() const { return m_AO_Pitch; }
@@ -184,6 +219,8 @@ public :
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return m_FollowCamera; }
 	FORCEINLINE bool ShouldRotateRootBone() const { return m_bRotateRootBone; }
 	FORCEINLINE bool IsElimmed() const { return m_bElimmed; }
+	FORCEINLINE float GetHealth() const { return m_Health; }
+	FORCEINLINE float GetMaxHealth() const { return m_MaxHealth; }
 
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();

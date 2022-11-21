@@ -110,7 +110,7 @@ void AWeapon::OnSphereEndOverlap(UPrimitiveComponent* OverlappedComponent, AActo
 	}
 }
 
-// Client 측으로 Replicate 되는 함수 
+// Client 측으로 Replicate 되는 함수 (서버에서는 호출 X)
 void AWeapon::OnRep_WeaponState()
 {
 	switch (m_WeaponState)
@@ -121,6 +121,28 @@ void AWeapon::OnRep_WeaponState()
 	case EWeaponState::EWS_Equipped :
 		ShowPickupWidget(false);
 		m_AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+		// SetSimulatePhysics(false) 를 해야만 Equip 을 해서 hand Socket 에 장착할 수 있다.
+		m_WeaponMesh->SetSimulatePhysics(false);
+		m_WeaponMesh->SetEnableGravity(false);
+		m_WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		break;
+
+	case EWeaponState::EWS_Dropped:
+		// m_AreaSphere 에 부딪혀서 Equip 할 수 있게 하는 기능은 서버에서만 가능하도록 할 것이다.
+		// if (HasAuthority())
+		// {
+		// 	// AreaSphere 의 Collision Component 를 Disable 시킨다.
+		// 	m_AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		// }
+
+		// 땅에 떨어지면 멈출 수 있게 한다.
+		m_WeaponMesh->SetSimulatePhysics(true);
+		m_WeaponMesh->SetEnableGravity(true);
+		m_WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
+		// Widget 숨기기
+		ShowPickupWidget(true);
 		break;
 	}
 }
@@ -137,6 +159,27 @@ void AWeapon::SetWeaponState(EWeaponState State)
 		ShowPickupWidget(false);
 		// AreaSphere 의 Collision Component 를 Disable 시킨다.
 		m_AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+		// SetSimulatePhysics(false) 를 해야만 Equip 을 해서 hand Socket 에 장착할 수 있다.
+		m_WeaponMesh->SetSimulatePhysics(false);
+		m_WeaponMesh->SetEnableGravity(false);
+		m_WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		break;
+	case EWeaponState::EWS_Dropped:
+		// 다시 무기를 주울 수 있게 Collision 을 다시 활성화 한다.
+		if (HasAuthority())
+		{
+			// AreaSphere 의 Collision Component 를 Disable 시킨다.
+			m_AreaSphere->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		}
+
+		// 땅에 떨어지면 멈출 수 있게 한다.
+		m_WeaponMesh->SetSimulatePhysics(true);
+		m_WeaponMesh->SetEnableGravity(true);
+		m_WeaponMesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+
+		// Widget 숨기기
+		ShowPickupWidget(true);
 		break;
 	}
 }
@@ -186,3 +229,19 @@ void AWeapon::Fire(const FVector& HitTarget)
 	}
 }
 
+// Called Only From Server
+void AWeapon::Dropped()
+{
+	// m_WeaponState 는 Replicate 하게 된다. 
+	SetWeaponState(EWeaponState::EWS_Dropped);
+
+	// Detach Weapon
+	// - Detach 하는 순간 World Transform 을 유지할 것이다. 그런데 Gravity, Physics 를 적용한 상황이므로, 
+	// - 아래로 바로 떨어질 것이다.
+	FDetachmentTransformRules DetachRules(EDetachmentRule::KeepWorld, true);
+	
+	m_WeaponMesh->DetachFromComponent(DetachRules);
+
+	// Weapons' Owner Set To nullptr (Replicated Internally)
+	SetOwner(nullptr);
+}

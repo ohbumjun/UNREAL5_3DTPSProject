@@ -36,6 +36,9 @@ public:
 
 	virtual void Fire(const FVector& HitTarget);
 
+	// Drop Weapon When Character Dies 
+	void Dropped();
+
 	/*
 	* Textures for weapon crosshairs
 	*/

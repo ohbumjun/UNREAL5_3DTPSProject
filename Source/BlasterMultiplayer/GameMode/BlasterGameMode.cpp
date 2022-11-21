@@ -6,17 +6,38 @@
 #include "../PlayerController/BlasterPlayerController.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
+#include "../PlayerState/BlasterPlayerState.h"
 
 // Called From BlasterCharacter::ReceiveDamage (즉, Server 에서만 호출)
 void ABlasterGameMode::PlayerEliminated(class ABlasterCharacter* ElimmedCharacter, 
 	class ABlasterPlayerController* VictimController,
 	class ABlasterPlayerController* AttackerController)
 {
+	ABlasterPlayerState* AttackerPlayerState = AttackerController ?
+		Cast<ABlasterPlayerState>(AttackerController->PlayerState) :
+		nullptr;
+
+	ABlasterPlayerState* VictimPlayerState = VictimController ?
+		Cast<ABlasterPlayerState>(VictimController->PlayerState) :
+		nullptr;
+
+	// Attacker, Victim 모두의 PlayerState 에 접근하여 Score 를 Update 해줄 것이다.
+	if (AttackerPlayerState && AttackerPlayerState != VictimPlayerState)
+	{
+		AttackerPlayerState->AddToScore(1.f);
+	}
+
+	if (VictimPlayerState && VictimPlayerState != AttackerPlayerState)
+	{
+		VictimPlayerState->AddToDefeats(1);
+	}
+
 	if (ElimmedCharacter)
 	{
 		// 서버에서만 Elim 함수 호출
-		// 하지만 Elim 함수가 multicast 로 동작하므로, 결과적으로 모든 Server, Client 에서 실행될 것이다.
 		ElimmedCharacter->Elim();
+
+		
 	}
 }
 

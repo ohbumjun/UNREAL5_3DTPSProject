@@ -53,8 +53,11 @@ protected:
 	// Call Tick Component
 	void SetHUDCrosshairs(float DeltaTime);
 private :
+	UPROPERTY()
 	class ABlasterCharacter* m_BlasterCharacter;
+	UPROPERTY()
 	class ABlasterPlayerController* m_Controller;
+	UPROPERTY()
 	class ABlasterHUD* m_HUD;
 
 	// 해당 변수가 nullptr 인지 아닌지를 BlasterAnimInstance 의 NativeUpdateAnimation 가 실시간으로 체크한다.

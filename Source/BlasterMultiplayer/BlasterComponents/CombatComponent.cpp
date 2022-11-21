@@ -206,7 +206,7 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	// 하지만, m_EquippedWeapon 같은 경우는 안된다.
 	// 따라서 m_EquippedWeapon 에서의 특정 Property 들도 Replicate 되도록 세팅해야 한다.
 	// 따라서 이를 위해서 Variable Replication 을 진행할 것이다.
-	// - m_WeaponState 변수가 Replicate 되도록 한다.
+	// - m_EquippedWeapon 변수가 Replicate 되도록 한다.
 	// - 이것이 가능한 이유는 Weapon 이 Replicate 가 가능한 Actor 로 세팅해둔 상태이기 때문이다
 	// - 생성자 : bReplicates = true; 
 	m_EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
@@ -215,6 +215,13 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 
 	if (HandSocket)
 	{
+		// Actor 를 Attach 하는 행위도 자동으로 내부적으로 replicate 되도록 구성되어 있다.
+		// 여기서 중요한 점은, 1) m_EquippedWeapon 이 2) Attaching Actor 하는 행위보다 먼저 Replicate 된다는
+		// 보장이 없다. Network 상황등에 따라 다르게 진행될 수도 있기 때문이다.
+		// m_EquippedWeapon 의 m_WeaponState 를 먼저 세팅해야 하는 이유는 Collision 때문이다.
+		// 구체적으로 SetPhysics() 와 관련된 함수 때문인데
+		// 위에서 EWS_Equipped 로 m_EquippedWeapon 내의 m_WeaponState 를 세팅해야만
+		// SetPhysics(false) 로 세팅되고, 그때비로소 Attaching Actor 행위가 가능해지기 때문이다.
 		HandSocket->AttachActor(m_EquippedWeapon, m_BlasterCharacter->GetMesh());
 	}
 
@@ -239,6 +246,18 @@ void UCombatComponent::OnRep_EquippedWeapon()
 {
 	if (m_EquippedWeapon && m_BlasterCharacter)
 	{
+		// 자. Replicate 함수 내에 있으니, Client 에서 해당 함수를 호출해주는 것이고
+		// 이제는 Network 상황과 관계없이, 절차적으로 코드 내용이 적용될 것이다.
+		// 즉, SetWeaponState(EWeaponState::EWS_Equipped); 를 통해서 Physics 정보가 분명히 바뀐다는 것이다.
+		m_EquippedWeapon->SetWeaponState(EWeaponState::EWS_Equipped);
+
+		const USkeletalMeshSocket* HandSocket = m_BlasterCharacter->GetMesh()->GetSocketByName(FName("RightHandSocket"));
+
+		if (HandSocket)
+		{
+			HandSocket->AttachActor(m_EquippedWeapon, m_BlasterCharacter->GetMesh());
+		}
+
 		m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
 
 		m_BlasterCharacter->bUseControllerRotationYaw = true;

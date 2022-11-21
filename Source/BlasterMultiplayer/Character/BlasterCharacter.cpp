@@ -14,11 +14,15 @@
 #include "../PlayerController/BlasterPlayerController.h"
 #include "../BlasterMultiplayer.h"
 #include "TimerManager.h"
+#include "../PlayerState/BlasterPlayerState.h"
 #include "../GameMode/BlasterGameMode.h"
 
 ABlasterCharacter::ABlasterCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
+
+	// Spawn 할 때 Collision 중이더라도 Spawn 할 수 있게 세팅한다. (그래야만 Respawn 할 때, Collision 중이어도 제대로 Spawn 된다)
+	SpawnCollisionHandlingMethod = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
 
 	m_CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	m_CameraBoom->SetupAttachment(GetMesh());
@@ -74,8 +78,9 @@ ABlasterCharacter::ABlasterCharacter()
 	NetUpdateFrequency = 66.f;
 	MinNetUpdateFrequency = 33.f;
 
-	// AimWalk Speed 를 따로 세팅한다.
-
+	
+	// Dosen't have to attach to anything
+	m_DissolveTimeline = CreateDefaultSubobject<UTimelineComponent>(TEXT("DissolveTimelineComponent"));
 }
 
 // Called to bind functionality to input
@@ -143,6 +148,8 @@ void ABlasterCharacter::Tick(float DeltaTime)
 	}
 
 	HideCameraIfCharacterClose();
+
+	PollInit();
 }
 
 void ABlasterCharacter::MoveForward(float Value)
@@ -569,6 +576,8 @@ void ABlasterCharacter::SetOverlappingWeapon(AWeapon* Weapon)
 		m_OverlappingWeapon->ShowPickupWidget(false);
 	}
 
+	// 해당 변수는 Replicate 처리를 했으므로, 서버에서 실행하여, 여기에서 m_OverlappingWeapon 값을 바꾸면
+	// 다른 기계 (클라이언트) 들에서도 변동 사항이 적용될 것이다.
 	m_OverlappingWeapon = Weapon;
 
 	// Only Show Widget That Is Actually Controlling The Pawn
@@ -729,6 +738,31 @@ void ABlasterCharacter::UpdateHUDHealth()
 	}
 }
 
+// 맨 처음 시작시에 PlayerState 에 있는 Score 정보를 HUD 에 세팅해야 한다.
+// ex) 맨 처음 시작이면 0을 세팅
+// ex) 다시 respawn 되는 것이라면, 죽기 이전의 0을 세팅
+// 이를 위해 현재 ABlasterCharacter 의 BeginPlay 에서 BlasterPlayerState 에 접근해서 값을 세팅해야 한다.
+// 문제는 첫 프레임에서는 PlayerState 가 세팅되지 않는다는 것이다.
+// 따라서 Tick 함수에서 매프레임마다 m_BlasterPlayerState 가 세팅되었는지 확인해서
+// 세팅되었다면 그때가서 score 를 세팅해줄 것이다.
+void ABlasterCharacter::PollInit()
+{
+	// Poll For PlayerState
+	if (m_BlasterPlayerState == nullptr)
+	{
+		// 첫번째 Frame 에서는 nullptr 을 리턴할 것이다.
+		// 이후의 Frame 에서 체크할 것이다.
+		m_BlasterPlayerState = GetPlayerState<ABlasterPlayerState>();
+
+		if (m_BlasterPlayerState)
+		{
+			// Set Score In HUD
+			m_BlasterPlayerState->AddToScore(0.f);
+			m_BlasterPlayerState->AddToDefeats(0);
+		}
+	}
+}
+
 void ABlasterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const UDamageType* DamageType,
 	class AController* InstigatorController, AActor* DamageCursor)
 {
@@ -756,8 +790,19 @@ void ABlasterCharacter::ReceiveDamage(AActor* DamagedActor, float Damage, const 
 	}
 }
 
+void ABlasterCharacter::Destroyed()
+{
+	Super::Destroyed();
+}
+
+// Called Only From Server
 void ABlasterCharacter::Elim()
 {
+	if (m_CombatComponent && m_CombatComponent->m_EquippedWeapon)
+	{
+		m_CombatComponent->m_EquippedWeapon->Dropped();
+	}
+
 	// MulticastElim 는 서버, 모든 클라이언트에서 실행
 	MulticastElim();
 
@@ -774,6 +819,39 @@ void ABlasterCharacter::MulticastElim_Implementation()
 	m_bElimmed = true;
 
 	PlayElimMontage();
+
+	// start dissolve material effect
+	if (m_DissolveMaterialInstance) 
+	{
+		m_DyanamicDissolveMaterialInstance = UMaterialInstanceDynamic::Create(m_DissolveMaterialInstance, this);
+	
+		// Set Material
+		GetMesh()->SetMaterial(0, m_DyanamicDissolveMaterialInstance);
+
+		m_DyanamicDissolveMaterialInstance->SetScalarParameterValue(TEXT("Dissolve"), 0.55f);
+		m_DyanamicDissolveMaterialInstance->SetScalarParameterValue(TEXT("Glow"), 200.f);
+
+		// Start Time Line
+		StartDissolve();
+	}
+
+	// Disable Movement (W,S,A,D X)
+	GetCharacterMovement()->DisableMovement();
+
+	// 마우스로 Character 를 Rotate 하지 못하게 한다.
+	GetCharacterMovement()->StopMovementImmediately();
+
+	// Prevent Any Input
+	if (m_BlasterPlayerController)
+	{
+		DisableInput(m_BlasterPlayerController);
+	}
+
+	// Diable Collision
+	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
+	// Drop Weapon
 }
 
 // Only be Called From Server
@@ -785,5 +863,36 @@ void ABlasterCharacter::ElimTimerFinished()
 	if (BlasterGameMode)
 	{
 		BlasterGameMode->RequestRespawn(this, Controller);
+	}
+}
+
+// Float Value Getting From Value
+void ABlasterCharacter::UpdateDissolveMaterial(float DissolveValue)
+{
+	// Change Material Instance Character Uses When Character Elims
+
+	// Update Param In Material Instance
+	
+	// UE_LOG(LogTemp, Warning, TEXT("Dissolve Value : %f"), DissolveValue);
+
+	if (m_DyanamicDissolveMaterialInstance)
+	{
+		m_DyanamicDissolveMaterialInstance->SetScalarParameterValue(TEXT("Dissolve"), DissolveValue);
+	}
+}
+
+void ABlasterCharacter::StartDissolve()
+{
+	// Bind To Callback To Dissolve Track Delegate
+	m_DissolveTrack.BindDynamic(this, &ABlasterCharacter::UpdateDissolveMaterial);
+
+	// Start Time Line
+	if (m_DissolveCurve && m_DissolveTimeline)
+	{
+		// Add Curve To TimeLine
+		// Associate Curve with DissolveTrack
+		m_DissolveTimeline->AddInterpFloat(m_DissolveCurve, m_DissolveTrack);
+
+		m_DissolveTimeline->Play();
 	}
 }
