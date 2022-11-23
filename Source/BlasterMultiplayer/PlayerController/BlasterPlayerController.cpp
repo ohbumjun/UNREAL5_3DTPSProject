@@ -67,6 +67,23 @@ void ABlasterPlayerController::SetHUDDefeats(int32 Defeats)
 		m_BlasterHUD->m_CharacterOverlay->DefeatsAmount->SetText(FText::FromString(DefeatsText));
 	}
 }
+
+void ABlasterPlayerController::SetHUDWeaponAmmo(int32 Ammo)
+{
+	m_BlasterHUD = m_BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : m_BlasterHUD;
+
+	bool bHUDValid = m_BlasterHUD &&
+		m_BlasterHUD->m_CharacterOverlay &&
+		m_BlasterHUD->m_CharacterOverlay->WeaponAmmoAmount;
+
+	if (bHUDValid)
+	{
+		FString AmmoText = FString::Printf(TEXT("%d"), Ammo);
+
+		m_BlasterHUD->m_CharacterOverlay->WeaponAmmoAmount->SetText(FText::FromString(AmmoText));
+	}
+}
+
 void ABlasterPlayerController::OnPossess(APawn* InPawn)
 {
 	Super::OnPossess(InPawn);

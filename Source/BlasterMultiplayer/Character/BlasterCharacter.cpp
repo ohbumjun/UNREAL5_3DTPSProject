@@ -215,7 +215,8 @@ void ABlasterCharacter::EquipButtonPressed()
 	// ex) Client 에서 Call 하고, Server 에서 Execute 하기
 	// - 이 경우 BlasterCharacter 의 특정 함수를 Client 측에서 Call 하고, Server 에서 Execute 시키기
 
-	// if (m_CombatComponent && HasAuthority()) => HasAuthority() 는 필요없다. 왜냐하면 해당 함수가 서버에서 호출되는 것이 보장되기 때문이다.
+	// if (m_CombatComponent && HasAuthority()) => HasAuthority() 는 필요없다. 
+	// 왜냐하면 해당 함수가 서버에서 호출되는 것이 보장되기 때문이다.
 	if (m_CombatComponent)
 	{
 		// 서버에서 호출되는 것
@@ -225,10 +226,12 @@ void ABlasterCharacter::EquipButtonPressed()
 		}
 		else
 		{
-			// 호출은 Client 가, 실행은 서버가 -> 서버 측에서 결과적으로 m_CombatComponent->EquipWeapon(m_OverlappingWeapon); 를 실행하면
+			// 호출은 Client 가, 실행은 서버가 
+			// -> 서버 측에서 결과적으로 m_CombatComponent->EquipWeapon(m_OverlappingWeapon); 를 실행하면
 			// Replicate 되서 다시 Client 로 변동 사항이 넘어갈 것이다.
 			
-			// RPC 를 전달한다. => ServerEquippedButtonPressed_Implementation 를 호출 => 클라이언트 측으로 변화 사항이 전달된다.
+			// RPC 를 전달한다. => ServerEquippedButtonPressed_Implementation 를 호출 
+			// => 클라이언트 측으로 변화 사항이 전달된다.
 			ServerEquippedButtonPressed();
 		}
 	}
@@ -718,7 +721,6 @@ FVector ABlasterCharacter::GetHitTarget() const
 	return m_CombatComponent->m_HitTarget;
 }
 
-
 void ABlasterCharacter::OnRep_Health()
 {
 	UpdateHUDHealth();
@@ -816,6 +818,12 @@ void ABlasterCharacter::Elim()
 
 void ABlasterCharacter::MulticastElim_Implementation()
 {
+	// Ammo Amount 에 해당하는 UI Text 를 0 으로 만든다.
+	if (m_BlasterPlayerController)
+	{
+		m_BlasterPlayerController->SetHUDWeaponAmmo(0);
+	}
+
 	m_bElimmed = true;
 
 	PlayElimMontage();
@@ -850,8 +858,6 @@ void ABlasterCharacter::MulticastElim_Implementation()
 	// Diable Collision
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	GetMesh()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
-	// Drop Weapon
 }
 
 // Only be Called From Server

@@ -32,6 +32,11 @@ public:
 	// GetLifetimeReplicatedProps() 에서 Replicate 되도록 하는 변수를 세팅할 것이다.
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
+	// Owner 에 대한 Rep Notify 함수
+	virtual void OnRep_Owner() override;
+
+	void SetHUDAmmo();
+
 	void ShowPickupWidget(bool bShowWidget);
 
 	virtual void Fire(const FVector& HitTarget);
@@ -107,12 +112,26 @@ private :
 	UPROPERTY(EditAnywhere, Category = "Weapon Properties")
 	class UAnimationAsset* m_FireAnimation;
 
-
 	// 사용할 Bullet Class 장착
 	UPROPERTY(EditAnywhere)
 	TSubclassOf<class ACasing> m_CasingClass;
 
+	UPROPERTY(EditAnywhere, ReplicatedUsing = OnRep_Ammo)
+	int32 m_Ammo = 30;
 
+	UFUNCTION()
+	void OnRep_Ammo();
+
+	void SpendRound();
+
+	UPROPERTY(EditAnywhere)
+	int32 m_MagCapacity = 30;
+
+	// 알아서 nullptr 로 세팅해주기 위해서 UPROPERTY() 를 붙여줄 것이다.
+	UPROPERTY()
+	class ABlasterCharacter* m_BlasterOwnerCharacter;
+	UPROPERTY()
+	class ABlasterPlayerController* m_BlasterOwnerController;
 public :
 	// FORCEINLINE == inline 키워드
 	void SetWeaponState(EWeaponState State);
@@ -120,4 +139,5 @@ public :
 	FORCEINLINE USkeletalMeshComponent* GetWeaponMesh() const { return m_WeaponMesh; }
 	FORCEINLINE float GetZoomedFOV() const { return m_ZoomedFOV; }
 	FORCEINLINE float GetZoomedInterpSpeed() const { return m_ZoomInterpSpeed; }
+	bool IsEmpty();
 };

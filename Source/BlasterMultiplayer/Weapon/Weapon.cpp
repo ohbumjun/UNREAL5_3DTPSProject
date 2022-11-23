@@ -9,7 +9,7 @@
 #include "Animation/AnimationAsset.h"
 #include "Casing.h"
 #include "Engine/SkeletalMeshSocket.h"
-
+#include "../PlayerController/BlasterPlayerController.h"
 
 AWeapon::AWeapon()
 {
@@ -39,7 +39,6 @@ AWeapon::AWeapon()
 	m_AreaSphere->SetupAttachment(RootComponent);
 	m_AreaSphere->SetCollisionResponseToAllChannels(ECollisionResponse::ECR_Ignore);
 	m_AreaSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-
 
 	m_PickupWidget = CreateDefaultSubobject<UWidgetComponent>(TEXT("PickupWidget"));
 	m_PickupWidget->SetupAttachment(RootComponent);
@@ -76,7 +75,9 @@ void AWeapon::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeP
 {
 	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
 
+	// 모든 클라이언트들에게 Replicate
 	DOREPLIFETIME(AWeapon, m_WeaponState);
+	DOREPLIFETIME(AWeapon, m_Ammo);
 }
 
 void AWeapon::Tick(float DeltaTime)
@@ -184,6 +185,11 @@ void AWeapon::SetWeaponState(EWeaponState State)
 	}
 }
 
+bool AWeapon::IsEmpty()
+{
+	return m_Ammo <= 0;
+}
+
 // Replicate 과정을 통해서 서버 측에서 호출하던, 클라이언트 측에서 호출하던 변동 사항이 적용되도록 세팅했다.
 void AWeapon::ShowPickupWidget(bool bShowWidget)
 {
@@ -201,7 +207,7 @@ void AWeapon::Fire(const FVector& HitTarget)
 		m_WeaponMesh->PlayAnimation(m_FireAnimation, false); // false : No Loop
 	}
 
-	// Bullet 생성
+	// Casing 생성
 	// ACasing Not Replicated
 	// Allow Spawning ACasing Actor Locally
 	if (m_CasingClass)
@@ -227,6 +233,8 @@ void AWeapon::Fire(const FVector& HitTarget)
 			}
 		}
 	}
+
+	SpendRound();
 }
 
 // Called Only From Server
@@ -244,4 +252,61 @@ void AWeapon::Dropped()
 
 	// Weapons' Owner Set To nullptr (Replicated Internally)
 	SetOwner(nullptr);
+
+	m_BlasterOwnerCharacter = nullptr;
+	m_BlasterOwnerController = nullptr;
+}
+
+
+
+void AWeapon::SetHUDAmmo()
+{
+	m_BlasterOwnerCharacter = m_BlasterOwnerCharacter == nullptr ?
+		Cast<ABlasterCharacter>(GetOwner()) : m_BlasterOwnerCharacter;
+
+	if (m_BlasterOwnerCharacter)
+	{
+		m_BlasterOwnerController = m_BlasterOwnerController == nullptr ?
+			Cast<ABlasterPlayerController>(m_BlasterOwnerCharacter->Controller) :
+			m_BlasterOwnerController;
+
+		if (m_BlasterOwnerController)
+		{
+			m_BlasterOwnerController->SetHUDWeaponAmmo(m_Ammo);
+		}
+	}
+}
+
+// Automatic Fire 를 진행중이므로, 매우 빈번하게 해당 함수가 호출될 것이다.
+// Only Called On Server
+void AWeapon::SpendRound()
+{
+	// 1. Subtract Ammo
+	m_Ammo = FMath::Clamp(m_Ammo - 1, 0, m_MagCapacity);
+
+	// 2. Update HUD Of Weapon Owner
+	SetHUDAmmo();
+}
+
+// SpendRound 는 Server 측에서만 호출된다.
+// 따라서 m_Ammo 변수가 바뀐 것에 대한 동일한 효과가 클라이언트들 측에서도
+// 호출되게끔 하고 싶다.
+void AWeapon::OnRep_Ammo()
+{
+	SetHUDAmmo();
+}
+
+void AWeapon::OnRep_Owner()
+{
+	Super::OnRep_Owner();
+
+	if (Owner == nullptr)
+	{
+		m_BlasterOwnerCharacter = nullptr;
+		m_BlasterOwnerController = nullptr;
+	}
+	else
+	{
+		SetHUDAmmo();
+	}
 }

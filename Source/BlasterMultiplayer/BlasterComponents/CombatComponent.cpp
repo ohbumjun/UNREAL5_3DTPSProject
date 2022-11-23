@@ -132,12 +132,8 @@ void UCombatComponent::FireTimerFinished()
 
 void UCombatComponent::Fire()
 {
-	UE_LOG(LogTemp, Warning, TEXT("Fire Function"));
-
-	if (m_bCanFire)
+	if (CanFire())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("Fire Function Yes ! m_bCanFire = true"));
-
 		ServerFire(m_HitTarget);
 
 		// Affect Cross Hair Shooting Factor
@@ -155,6 +151,14 @@ void UCombatComponent::Fire()
 	}
 }
 
+bool UCombatComponent::CanFire()
+{
+	if (m_EquippedWeapon == nullptr)
+		return false;
+
+	// Ammo 확인
+	return !m_EquippedWeapon->IsEmpty() || !m_bCanFire;
+}
 
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
@@ -197,6 +201,10 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	if (m_BlasterCharacter == nullptr || WeaponToEquip == nullptr)
 		return;
 
+	// 기존에 들고 있던 Weapon 을 내려둔다.
+	if (m_EquippedWeapon)
+		m_EquippedWeapon->Dropped();
+
 	// Attach Weapon to Socket On Skeleton 
 	// (Bluepint 를 통해서 Mesh 를 찾고 원하는 위치에 Socket 추가하기 (46강)
 	m_EquippedWeapon = WeaponToEquip;
@@ -229,6 +237,9 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	// SetOwner() 라는 변수가 Replicated 되도록 이미 설정되어 있다. 
 	// 따라서 Client 측에도 Replicate 될 것이다.
 	m_EquippedWeapon->SetOwner(m_BlasterCharacter);
+
+	// 무기 정보 UI 세팅
+	m_EquippedWeapon->SetHUDAmmo();
 
 	// MovementComponent 의 World상의 Rotation 이 아니라
 	// PlayerController 의 World 상의 Rotation 정보를 사용할 것이다. 마우스...? (강좌 51. 52) 

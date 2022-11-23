@@ -113,7 +113,8 @@ private:
 	class UCombatComponent* m_CombatComponent;
 
 	// RPC 
-	// Reliable RPC : Guaranteed To be executed -> client wll receive confirmation that server received rpc , 만약 confirmation 안받으면 다시 전달
+	// Reliable RPC : Guaranteed To be executed -> client wll receive confirmation that server received rpc , 
+	// 만약 confirmation 안받으면 다시 전달
 	// - 하지만 상대적으로 느리기 때문에 자주 x => ex. Tick Function 등에서는 되도록 x => 하지만 Equip Weapon 기능은 okay
 	// Unreliable RPC : Can Be Dropped  => 기본적으로 RPC 는 Unreliable
 	// As We Send Information From Client To Server, Info Be Sent In Packet
