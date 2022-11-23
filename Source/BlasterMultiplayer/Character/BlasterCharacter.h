@@ -7,6 +7,7 @@
 #include "../BlasterTypes/TurningInPlace.h"
 #include "../Interfaces/InteractWithCrosshairsInterface.h"
 #include "Components/TimelineComponent.h"
+#include "../BlasterComponents/CombatComponent.h"
 #include "BlasterCharacter.generated.h"
 
 
@@ -32,6 +33,8 @@ public:
 
 	// Called By Combat Component
 	void PlayFireMontage(bool bAiming);
+
+	void PlayReloadMontage();
 
 	void PlayElimMontage();
 
@@ -70,6 +73,7 @@ protected:
 	virtual void Jump() override; // Character 클래스 kooverride
 	void FireButtonPressed();
 	void FireButtonReleased();
+	void ReloadButtonPressed();
 
 	// Called By AProjectile When Hit
 	void PlayHitReactMontage();
@@ -109,7 +113,7 @@ private:
 	UFUNCTION()
 	void OnRep_OverlappingWeapon(AWeapon* LastWeapon);
 
-	UPROPERTY(VisibleAnywhere)
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, meta = (AllowPrivateAccess = "true"))
 	class UCombatComponent* m_CombatComponent;
 
 	// RPC 
@@ -129,6 +133,10 @@ private:
 
 	ETurningInPlace m_TurningInPlace;
 	void TurnInPlace(float DeltaTime);
+
+	/*
+	*  Animation Montages
+	*/
 	
 	// Blueprint 에서 세팅하게 할 것 -> Fire 할 때의 Animation Montage
 	UPROPERTY(EditAnywhere, Category = "Combat")
@@ -139,6 +147,9 @@ private:
 
 	UPROPERTY(EditAnywhere, Category = "Combat") 
 	class UAnimMontage* m_ElimMontage;
+
+	UPROPERTY(EditAnywhere, Category = "Combat") 
+	class UAnimMontage* m_ReloadMontage;
 
 	void HideCameraIfCharacterClose();
 
@@ -222,6 +233,7 @@ public :
 	FORCEINLINE bool IsElimmed() const { return m_bElimmed; }
 	FORCEINLINE float GetHealth() const { return m_Health; }
 	FORCEINLINE float GetMaxHealth() const { return m_MaxHealth; }
+	ECombatState GetCombatState() const;
 
 	void SetOverlappingWeapon(AWeapon* Weapon);
 	bool IsWeaponEquipped();

@@ -15,6 +15,7 @@
 #include "../BlasterMultiplayer.h"
 #include "TimerManager.h"
 #include "../PlayerState/BlasterPlayerState.h"
+#include "../Weapon/WeaponTypes.h"
 #include "../GameMode/BlasterGameMode.h"
 
 ABlasterCharacter::ABlasterCharacter()
@@ -95,6 +96,7 @@ void ABlasterCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCo
 	PlayerInputComponent->BindAction("Aim", IE_Released, this, &ThisClass::AimButtonReleased);
 	PlayerInputComponent->BindAction("Fire", IE_Pressed, this, &ThisClass::FireButtonPressed);
 	PlayerInputComponent->BindAction("Fire", IE_Released, this, &ThisClass::FireButtonReleased);
+	PlayerInputComponent->BindAction("Reload", IE_Pressed, this, &ThisClass::ReloadButtonPressed);
 
 	PlayerInputComponent->BindAxis("MoveForward", this, &ThisClass::MoveForward);
 	PlayerInputComponent->BindAxis("MoveRight", this, &ThisClass::MoveRight);
@@ -504,6 +506,20 @@ void ABlasterCharacter::FireButtonReleased()
 	}
 }
 
+// 서버, 클라이언트 모두에서 호출되는 함수 
+void ABlasterCharacter::ReloadButtonPressed()
+{
+	// 서버에서만 오로지 Reload 가 일어나도록 할 것이다.
+	// - CombatComponent 에서 담당하도록 할 것이다.
+	
+	UE_LOG(LogTemp, Warning, TEXT("ReloadButtonPressed In BlasterCharacter"));
+
+	if (m_CombatComponent)
+	{
+		m_CombatComponent->Reload();
+	}
+}
+
 void ABlasterCharacter::TurnInPlace(float DeltaTime)
 {
 	// Character 가 Turn Left, Right 할때의 Yaw 값을 이용할 것이다
@@ -568,6 +584,14 @@ void ABlasterCharacter::HideCameraIfCharacterClose()
 			m_CombatComponent->m_EquippedWeapon->GetWeaponMesh()->bOwnerNoSee = false;
 		}
 	}
+}
+
+ECombatState ABlasterCharacter::GetCombatState() const
+{
+	if (m_CombatComponent == nullptr)
+		return ECombatState::ECS_MAX;
+
+	return m_CombatComponent->m_CombatState;
 }
 
 // Function Only Called From Server
@@ -663,6 +687,31 @@ void ABlasterCharacter::PlayFireMontage(bool bAiming)
 	}
 }
 
+void ABlasterCharacter::PlayReloadMontage()
+{
+	if (m_CombatComponent == nullptr || m_CombatComponent->m_EquippedWeapon == nullptr)
+		return;
+
+	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
+
+	// Play Fire Montage
+	if (AnimInstance && m_ReloadMontage)
+	{
+		FName SectionName;
+
+		// Weapon Type 에 따라 다른 Section 실행
+		switch (m_CombatComponent->m_EquippedWeapon->GetWeaponType())
+		{
+		case EWeaponType::EWT_AssaultRifle :
+			SectionName = FName("Rifle");
+			break;
+		}
+
+		AnimInstance->Montage_Play(m_ReloadMontage);
+		AnimInstance->Montage_JumpToSection(SectionName);
+	}
+}
+
 void ABlasterCharacter::PlayElimMontage()
 {
 	UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance();
@@ -673,6 +722,7 @@ void ABlasterCharacter::PlayElimMontage()
 		AnimInstance->Montage_Play(m_ElimMontage);
 	}
 }
+
 
 void ABlasterCharacter::PlayHitReactMontage()
 {

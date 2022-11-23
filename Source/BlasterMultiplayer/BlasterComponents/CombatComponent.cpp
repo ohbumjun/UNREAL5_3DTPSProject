@@ -28,6 +28,11 @@ void UCombatComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Out
 
 	DOREPLIFETIME(UCombatComponent, m_EquippedWeapon);
 	DOREPLIFETIME(UCombatComponent, m_bAiming);
+	DOREPLIFETIME(UCombatComponent, m_CombatState);
+
+	// 현재 해당 CombatComponent 혹은 Weapon 을 소유중인 Client (Owning Client)만이 해당 값을 보면 된다.
+	// - 해당 값은 각 클라이언트만이 소유하고 있는 UI 에 표시될 정보이기 때문이다.
+	DOREPLIFETIME_CONDITION(UCombatComponent, m_CarriedAmmo, COND_OwnerOnly);
 }
 
 // Called when the game starts
@@ -35,8 +40,6 @@ void UCombatComponent::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// SetComponentTickEnabled(true);
-	
 	if (m_BlasterCharacter)
 	{
 		// 참고 : Crouch 할 때는 CharacterMovementComponent 상에서 MaxWalkSpeed 가 아니라 Crouch Walk Speed 변수를 사용
@@ -48,9 +51,13 @@ void UCombatComponent::BeginPlay()
 			m_DefaultFOV = m_BlasterCharacter->GetFollowCamera()->FieldOfView;
 			m_CurrentFOV = m_DefaultFOV;
 		}
+
+		if (m_BlasterCharacter->HasAuthority())
+		{
+			// 서버 측에서만 각 Weapon Type 에 대한 탄환 개수 정보를 관리할 것이다
+			InitializeCarriedAmmo();
+		}
 	}
-
-
 }
 
 // Called every frame
@@ -69,6 +76,13 @@ void UCombatComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 		InterpFOV(DeltaTime);
 	}
 }
+
+void UCombatComponent::InitializeCarriedAmmo()
+{
+	// 각 Weapon Type 에 대한 초기 탄환값 세팅
+	m_CarriedAmmoMap.Emplace(EWeaponType::EWT_AssaultRifle, m_StartingARAmmo);
+}
+
 
 // Call From Blaster Charcter (Can be Called From Client And Server All)
 void UCombatComponent::FireButtonPressed(bool bPressed)
@@ -160,6 +174,18 @@ bool UCombatComponent::CanFire()
 	return !m_EquippedWeapon->IsEmpty() || !m_bCanFire;
 }
 
+void UCombatComponent::OnRep_CarriedAmmo()
+{
+	m_Controller = m_Controller == nullptr ? 
+		Cast<ABlasterPlayerController>(m_BlasterCharacter->Controller) :
+		m_Controller;
+
+	if (m_Controller)
+	{
+		m_Controller->SetHUDCarriedAmmo(m_CarriedAmmo);
+	}
+}
+
 void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& TraceHitTarget)
 {
 	if (m_EquippedWeapon == nullptr)
@@ -241,6 +267,27 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	// 무기 정보 UI 세팅
 	m_EquippedWeapon->SetHUDAmmo();
 
+	// WeaponType 에 따라서 CarriedAmmo 값을 세팅해줄 것이다.
+	if (m_CarriedAmmoMap.Contains(m_EquippedWeapon->GetWeaponType()))
+	{
+		// 현재 EquipWeapon 함수는 서버에서만 실행하는 함수이다.
+		// m_CarriedAmmo 가 REplicate 변수 이므로, 모든 클라이언트 측에서도 세팅될 것이다
+		m_CarriedAmmo = m_CarriedAmmoMap[m_EquippedWeapon->GetWeaponType()];
+	}
+
+	// Set Ammo For Carried Ammo
+	// - m_CarrideAmmo => Replicated
+	m_Controller = m_Controller == nullptr ? Cast<ABlasterPlayerController>(m_BlasterCharacter->Controller) :
+		m_Controller;
+
+	if (m_Controller)
+	{
+		// 현재 함수는 서버에서만 실행된다.
+		// 클라이언트 측에서도 동일하게 세팅해주기 위해서
+		// m_CarriedAmmo 변수가 replicate  되고 있으므로 OnRep_CarriedAmmo 에 같은 기능을 추가한다.
+		m_Controller->SetHUDCarriedAmmo(m_CarriedAmmo);
+	}
+
 	// MovementComponent 의 World상의 Rotation 이 아니라
 	// PlayerController 의 World 상의 Rotation 정보를 사용할 것이다. 마우스...? (강좌 51. 52) 
 	// 왜냐하면 플레이상, 마우스가 바라보는 방향으로 총을 쏘기 위해 마우스 방향과 플레이어가 바라보는 방향을 일치시켜야 하기 때문
@@ -248,6 +295,66 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
 
 	m_BlasterCharacter->bUseControllerRotationYaw = true;
+}
+
+// 해당 함수는 서버에서만 실행
+void UCombatComponent::Reload()
+{
+	// Reload 할 탄창이 남았을 때 || 현재 Reload 중이 아닐 때
+	if (m_CarriedAmmo >= 0 && m_CombatState != ECombatState::ECS_Reloading)
+	{
+		ServerReload();
+	}
+}
+
+void UCombatComponent::FinishReloading()
+{
+	if (m_BlasterCharacter == nullptr)
+		return;
+
+	if (m_BlasterCharacter->HasAuthority())
+	{
+		m_CombatState = ECombatState::ECS_Unoccupied;
+	}
+}
+
+// 클라이언트 측에서 Reload 를 실행할 수 있게 해야 한다.
+// 이때 Server RPC 를 세팅할 것이다.
+// 서버 측에서도 Server RPC 를 호출한다.
+// ServerReload_Implementation 는 "서버에서만" 실행하는 함수가 된다.
+void UCombatComponent::ServerReload_Implementation()
+{
+	// play reload montage
+	if (m_BlasterCharacter == nullptr)
+		return;
+
+	m_CombatState = ECombatState::ECS_Reloading;
+
+	// 서버, 클라이언트 모두에서 일어나는 일을 담당할 것이다.
+	// 우선, 서버에서 ServerReload_Implementation 를 실행하니 , 
+	// 서버에서는 HandleReload 를 실행할 것이다.
+	// 클라이언트에서도 같은 기능을 수행하기 위해서 m_CombatState 를 replicate 변수로 등록하고
+	// OnRep_CombatState 에 같은 기능을 하는 코드를 넣는다.
+	HandleReload();
+}
+
+void UCombatComponent::HandleReload()
+{
+	m_BlasterCharacter->PlayReloadMontage();
+}
+
+// ServerReload_Implementation 에서 m_CombatState 변수를 바꾸면 Replicate 되어, 아래 함수를
+// 서버가 아닌 ! 클라이언트 들에서 실행하게 될 것이다.
+void UCombatComponent::OnRep_CombatState()
+{
+	switch (m_CombatState)
+	{
+	case ECombatState::ECS_Unoccupied:
+		break;
+	case ECombatState::ECS_Reloading:
+		HandleReload();
+		break;
+	}
 }
 
 // Rap Notify 이다.

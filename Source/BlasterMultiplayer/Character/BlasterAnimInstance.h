@@ -76,4 +76,8 @@ private :
 
 	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
 	bool bElimmed = false;
+
+	// IK Using For LeftHand
+	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
+	bool bUseFabrick = false;
 };

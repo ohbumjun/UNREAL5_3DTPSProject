@@ -4,6 +4,7 @@
 #include "BlasterCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "../BlasterTypes/CombatState.h"
 #include "../Weapon/Weapon.h"
 
 void UBlasterAnimInstance::NativeInitializeAnimation()
@@ -47,6 +48,7 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 	bRotateRootBone = m_BlasterCharacter->ShouldRotateRootBone();
 
 	bElimmed = m_BlasterCharacter->IsElimmed();
+
 
 	// 아래 관련 변수들은 이미 Replicate 되고 있기 때문에, 별도로 Replicate 처리를 해줄 필요가 없다.
 	// 1) Offset Yaw For Strafing
@@ -124,7 +126,9 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 			// 확 바뀔 수 있다. 이를 방지하기 위해서 Interpolation 을 수행하는 것이다.
 			RightHandRotation = FMath::RInterpTo(RightHandRotation, LookAtRotation, DeltaTime, 20.f);
 		}
-		
+
+		// Reloading 중이라면 Left Hand 에 적용 중인 Left Hand IK 를 적용하지 않을 것이다
+		bUseFabrick = m_BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading;
 
 
 		/* <디버그 용도>
