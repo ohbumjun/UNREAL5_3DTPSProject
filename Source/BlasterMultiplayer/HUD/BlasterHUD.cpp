@@ -7,8 +7,12 @@
 void ABlasterHUD::BeginPlay()
 {
 	Super::BeginPlay();
-
+	
+	// GameMode 의 MatchState 가 InProgress 로 바뀐 이후부터 보여주고자 한다.
+	// PlayerController 의 OnMatchStateSet 에서 호출하고자 한다.
 	AddCharacterOverlay();
+
+
 }
 
 void ABlasterHUD::AddCharacterOverlay()

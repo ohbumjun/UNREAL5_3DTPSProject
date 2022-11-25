@@ -43,9 +43,9 @@ public  :
 	UPROPERTY()
 	class UCharacterOverlay* m_CharacterOverlay;
 
+	void AddCharacterOverlay();
 protected :
 	virtual void BeginPlay() override;
-	void AddCharacterOverlay();
 private :
 	// Texture For Drawing Cross Hair
 	FHUDPackage m_HUDPackage;

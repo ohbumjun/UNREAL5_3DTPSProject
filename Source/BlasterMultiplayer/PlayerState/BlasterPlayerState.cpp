@@ -26,6 +26,8 @@ void ABlasterPlayerState::AddToScore(float ScoreAmount)
 
 void ABlasterPlayerState::AddToDefeats(int32 DefeatsAmount)
 {
+	UE_LOG(LogTemp, Warning, TEXT("AddToDefeats In ABlasterPlayerState"));
+
 	// 해당 줄이 실행되자마자 OnRep_Defeats 가 실행될 것이다 (Replicated 변수로 등록)
 	m_Defeats += DefeatsAmount;
 

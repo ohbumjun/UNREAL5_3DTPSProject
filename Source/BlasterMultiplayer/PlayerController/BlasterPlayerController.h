@@ -22,9 +22,13 @@ public :
 	void SetHUDCarriedAmmo(int32 Ammo);
 	void SetHUDMatchCountdown(float CountdownTime);
 	virtual void OnPossess(APawn* InPawn) override;
+	void OnMatchStateSet(FName State);
+	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
 protected :
 	virtual void BeginPlay() override;
 	void SetHUDTime();
+	void PollInit();
 	virtual void Tick(float DeltaTime) override;
 
 	// Synced with server World Clock
@@ -65,4 +69,20 @@ private :
 
 	float m_MatchTime = 120.f;
 	uint32 m_CountDownInt = 0.f;
+
+	UPROPERTY(ReplicatedUsing = OnRep_MatchState)
+	FName m_MatchState;
+
+	UFUNCTION()
+	void OnRep_MatchState();
+
+	UPROPERTY()
+	class UCharacterOverlay* m_CharacterOverlay;
+
+	bool m_bInitializeCharacterOverlay = false;
+
+	float m_HUDHealth;
+	float m_HUDMaxHealth;
+	float m_HUDScore;
+	int32 m_HUDDefeats;
 };

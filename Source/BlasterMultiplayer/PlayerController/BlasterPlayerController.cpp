@@ -6,6 +6,8 @@
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
 #include "../Character/BlasterCharacter.h"
+#include "Net/UnrealNetwork.h" // Replicate Variable
+#include "../GameMode/BlasterGameMode.h"
 
 void ABlasterPlayerController::BeginPlay()
 {
@@ -21,7 +23,39 @@ void ABlasterPlayerController::Tick(float DeltaTime)
 	SetHUDTime();
 
 	CheckTimeSync(DeltaTime);
+
+	PollInit();
 }
+
+void ABlasterPlayerController::PollInit()
+{
+	if (m_CharacterOverlay == nullptr)
+	{
+		if (m_BlasterHUD && m_BlasterHUD->m_CharacterOverlay)
+		{
+			// Set Overlay Value
+			m_CharacterOverlay = m_BlasterHUD->m_CharacterOverlay;
+
+			// 그 다음 Health, Score, Defeat 등을 Init
+			if (m_CharacterOverlay)
+			{
+				SetHUDHealth(m_HUDHealth, m_HUDMaxHealth);
+
+				SetHUDScore(m_HUDScore);
+
+				SetHUDDefeats(m_HUDDefeats);
+			}
+		}
+	}
+}
+
+void ABlasterPlayerController::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+	Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+	DOREPLIFETIME(ABlasterPlayerController, m_MatchState);
+}
+
 
 // 주기적으로 m_ClientServerDelta 를 구할 것이다.
 void ABlasterPlayerController::CheckTimeSync(float DeltaTime) 
@@ -38,6 +72,8 @@ void ABlasterPlayerController::CheckTimeSync(float DeltaTime)
 
 void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
 {
+	UE_LOG(LogTemp, Warning, TEXT("SetHUDHealth In ABlasterPlayerController"));
+
 	m_BlasterHUD = m_BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : m_BlasterHUD;
 
 	bool bHUDValid = m_BlasterHUD && 
@@ -56,6 +92,12 @@ void ABlasterPlayerController::SetHUDHealth(float Health, float MaxHealth)
 
 		m_BlasterHUD->m_CharacterOverlay->HealthText->SetText(FText::FromString(HealthText));
 	}
+	else
+	{
+		m_bInitializeCharacterOverlay = true;
+		m_HUDHealth = Health;
+		m_HUDMaxHealth = MaxHealth;
+	}
 }
 
 void ABlasterPlayerController::SetHUDScore(float Score)
@@ -72,10 +114,17 @@ void ABlasterPlayerController::SetHUDScore(float Score)
 		
 		m_BlasterHUD->m_CharacterOverlay->ScoreAmount->SetText(FText::FromString(ScoreText));
 	}
+	else
+	{
+		m_bInitializeCharacterOverlay = true;
+		m_HUDScore = Score;
+	}
 }
 
 void ABlasterPlayerController::SetHUDDefeats(int32 Defeats) 
 {
+	UE_LOG(LogTemp, Warning, TEXT("SetHUDDefeats In ABlasterPlayerController"));
+
 	m_BlasterHUD = m_BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : m_BlasterHUD;
 
 	bool bHUDValid = m_BlasterHUD &&
@@ -87,6 +136,11 @@ void ABlasterPlayerController::SetHUDDefeats(int32 Defeats)
 		FString DefeatsText = FString::Printf(TEXT("%d"), Defeats);
 
 		m_BlasterHUD->m_CharacterOverlay->DefeatsAmount->SetText(FText::FromString(DefeatsText));
+	}
+	else
+	{
+		m_bInitializeCharacterOverlay = true;
+		m_HUDDefeats = Defeats;
 	}
 }
 
@@ -131,9 +185,10 @@ void ABlasterPlayerController::OnPossess(APawn* InPawn)
 	
 	if (BlasterCharacter)
 	{
+		UE_LOG(LogTemp, Warning, TEXT("OnPossess In ABlasterPlayerController"));
+
 		SetHUDHealth(BlasterCharacter->GetHealth(), BlasterCharacter->GetMaxHealth());
 	}
-
 }
 
 void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
@@ -160,12 +215,6 @@ void ABlasterPlayerController::SetHUDMatchCountdown(float CountdownTime)
 void ABlasterPlayerController::SetHUDTime()
 {
 	uint32 SecondsLeft = FMath::CeilToInt(m_MatchTime - GetServerTime());
-
-	if (HasAuthority())
-	{
-		UE_LOG(LogTemp, Warning, TEXT("Time : %d"), m_MatchTime - GetWorld()->GetTimeSeconds());
-	}
-
 
 	// Changed ! ==> 1 sc passed
 	if (m_CountDownInt != SecondsLeft)
@@ -211,5 +260,39 @@ void ABlasterPlayerController::ReceivedPlayer()
 	{
 		// pass in current Client Time
 		ServerRequestServerTime(GetWorld()->GetTimeSeconds());
+	}
+}
+
+// 해당 함수는 BlasterGameMode 에서 호출할 것이고
+// Server 에서만 실행할 것이다.
+// 하지만 해당 내용을 Client 가 알아야 하기도 하다. 따라서 Replicate Variable 로 세팅할 것이다.
+// 그리고 OnRep_MatchState 를 Rep Notify 로 설정할 것이다.
+void ABlasterPlayerController::OnMatchStateSet(FName State)
+{
+	m_MatchState = State;
+
+	if (m_MatchState == MatchState::InProgress)
+	{
+		m_BlasterHUD = m_BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : m_BlasterHUD;
+	
+		// InProgress 로 바뀌는 순간 HUD 를 화면에 띄울 것이다.
+		if (m_BlasterHUD)
+		{
+			// m_BlasterHUD->AddCharacterOverlay();
+		}
+	}
+}
+
+void ABlasterPlayerController::OnRep_MatchState()
+{
+	if (m_MatchState == MatchState::InProgress)
+	{
+		m_BlasterHUD = m_BlasterHUD == nullptr ? Cast<ABlasterHUD>(GetHUD()) : m_BlasterHUD;
+
+		// InProgress 로 바뀌는 순간 HUD 를 화면에 띄울 것이다.
+		if (m_BlasterHUD)
+		{
+			m_BlasterHUD->AddCharacterOverlay();
+		}
 	}
 }
