@@ -13,6 +13,7 @@
 #include "DrawDebugHelpers.h"
 #include "../PlayerController/BlasterPlayerController.h"
 #include "TimerManager.h"
+#include "Sound/SoundCue.h"
 
 UCombatComponent::UCombatComponent()
 {
@@ -131,10 +132,9 @@ void UCombatComponent::StartFireTimer()
 
 void UCombatComponent::FireTimerFinished()
 {
-	UE_LOG(LogTemp, Warning, TEXT("FireTimerFinished"))
 
-		if (m_EquippedWeapon == nullptr)
-			return;
+	if (m_EquippedWeapon == nullptr)
+		return;
 
 	m_bCanFire = true;
 
@@ -142,12 +142,18 @@ void UCombatComponent::FireTimerFinished()
 	{
 		Fire();
 	}
+
+	if (m_EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
 }
 
 void UCombatComponent::Fire()
 {
 	if (CanFire())
 	{
+
 		ServerFire(m_HitTarget);
 
 		// Affect Cross Hair Shooting Factor
@@ -171,7 +177,15 @@ bool UCombatComponent::CanFire()
 		return false;
 
 	// Ammo 확인
-	return !m_EquippedWeapon->IsEmpty() || !m_bCanFire;
+	// 1) 탄창도 안비어야 하고
+	// 2) bCanFire 가 true 여야 하고
+	// 3) Reloading 중이어도 안되고
+
+	UE_LOG(LogTemp, Warning, TEXT("IsEmpty  %d: "), m_EquippedWeapon->IsEmpty());
+	UE_LOG(LogTemp, Warning, TEXT("m_bCanFire  %d: "), m_bCanFire);
+	UE_LOG(LogTemp, Warning, TEXT("m_CombatState Occu ?  %d: "), m_CombatState == ECombatState::ECS_Unoccupied);
+
+	return !m_EquippedWeapon->IsEmpty() && m_bCanFire && m_CombatState == ECombatState::ECS_Unoccupied;
 }
 
 void UCombatComponent::OnRep_CarriedAmmo()
@@ -195,8 +209,8 @@ void UCombatComponent::MulticastFire_Implementation(const FVector_NetQuantize& T
 	// Play Fire Montage (1. Not Aiming, 2. Aiming)
 	// if (m_BlasterCharacter && m_FireButtonPressed) : m_FireButtonPressed 정보는 필요없다.
 	// 왜냐하면 m_FireButtonPressed 라는 정보는 Client 측에만 존재하는 데이터. 하지만 현재 함수는 서버에서 실행
-
-	if (m_BlasterCharacter)
+	// (Reloading 중에도 총은 못쏘게 할 것이다)
+	if (m_BlasterCharacter && m_CombatState == ECombatState::ECS_Unoccupied)
 	{
 		// m_bAiming : GetLifetimeReplicatedProps() 에서 Replicated Variable 로 등록해둔 상태
 		// 따라서 정상적으로 클라이언트 측으로 m_bAiming 에 대한 정보가 전달될 것이다.
@@ -249,13 +263,6 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 
 	if (HandSocket)
 	{
-		// Actor 를 Attach 하는 행위도 자동으로 내부적으로 replicate 되도록 구성되어 있다.
-		// 여기서 중요한 점은, 1) m_EquippedWeapon 이 2) Attaching Actor 하는 행위보다 먼저 Replicate 된다는
-		// 보장이 없다. Network 상황등에 따라 다르게 진행될 수도 있기 때문이다.
-		// m_EquippedWeapon 의 m_WeaponState 를 먼저 세팅해야 하는 이유는 Collision 때문이다.
-		// 구체적으로 SetPhysics() 와 관련된 함수 때문인데
-		// 위에서 EWS_Equipped 로 m_EquippedWeapon 내의 m_WeaponState 를 세팅해야만
-		// SetPhysics(false) 로 세팅되고, 그때비로소 Attaching Actor 행위가 가능해지기 때문이다.
 		HandSocket->AttachActor(m_EquippedWeapon, m_BlasterCharacter->GetMesh());
 	}
 
@@ -288,6 +295,19 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 		m_Controller->SetHUDCarriedAmmo(m_CarriedAmmo);
 	}
 
+	// Sound 재생 => 같은 기능을 클라이언트 측에서 세팅한다.
+	if (m_EquippedWeapon->m_EquipSound)
+	{
+		UGameplayStatics::PlaySoundAtLocation(
+			this, m_EquippedWeapon->m_EquipSound, m_BlasterCharacter->GetActorLocation());
+	}
+
+	// Equip 한 Weapon 의 탄창이 비었다면 채운다
+	if (m_EquippedWeapon->IsEmpty())
+	{
+		Reload();
+	}
+
 	// MovementComponent 의 World상의 Rotation 이 아니라
 	// PlayerController 의 World 상의 Rotation 정보를 사용할 것이다. 마우스...? (강좌 51. 52) 
 	// 왜냐하면 플레이상, 마우스가 바라보는 방향으로 총을 쏘기 위해 마우스 방향과 플레이어가 바라보는 방향을 일치시켜야 하기 때문
@@ -295,66 +315,6 @@ void UCombatComponent::EquipWeapon(AWeapon* WeaponToEquip)
 	m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
 
 	m_BlasterCharacter->bUseControllerRotationYaw = true;
-}
-
-// 해당 함수는 서버에서만 실행
-void UCombatComponent::Reload()
-{
-	// Reload 할 탄창이 남았을 때 || 현재 Reload 중이 아닐 때
-	if (m_CarriedAmmo >= 0 && m_CombatState != ECombatState::ECS_Reloading)
-	{
-		ServerReload();
-	}
-}
-
-void UCombatComponent::FinishReloading()
-{
-	if (m_BlasterCharacter == nullptr)
-		return;
-
-	if (m_BlasterCharacter->HasAuthority())
-	{
-		m_CombatState = ECombatState::ECS_Unoccupied;
-	}
-}
-
-// 클라이언트 측에서 Reload 를 실행할 수 있게 해야 한다.
-// 이때 Server RPC 를 세팅할 것이다.
-// 서버 측에서도 Server RPC 를 호출한다.
-// ServerReload_Implementation 는 "서버에서만" 실행하는 함수가 된다.
-void UCombatComponent::ServerReload_Implementation()
-{
-	// play reload montage
-	if (m_BlasterCharacter == nullptr)
-		return;
-
-	m_CombatState = ECombatState::ECS_Reloading;
-
-	// 서버, 클라이언트 모두에서 일어나는 일을 담당할 것이다.
-	// 우선, 서버에서 ServerReload_Implementation 를 실행하니 , 
-	// 서버에서는 HandleReload 를 실행할 것이다.
-	// 클라이언트에서도 같은 기능을 수행하기 위해서 m_CombatState 를 replicate 변수로 등록하고
-	// OnRep_CombatState 에 같은 기능을 하는 코드를 넣는다.
-	HandleReload();
-}
-
-void UCombatComponent::HandleReload()
-{
-	m_BlasterCharacter->PlayReloadMontage();
-}
-
-// ServerReload_Implementation 에서 m_CombatState 변수를 바꾸면 Replicate 되어, 아래 함수를
-// 서버가 아닌 ! 클라이언트 들에서 실행하게 될 것이다.
-void UCombatComponent::OnRep_CombatState()
-{
-	switch (m_CombatState)
-	{
-	case ECombatState::ECS_Unoccupied:
-		break;
-	case ECombatState::ECS_Reloading:
-		HandleReload();
-		break;
-	}
 }
 
 // Rap Notify 이다.
@@ -379,6 +339,120 @@ void UCombatComponent::OnRep_EquippedWeapon()
 		m_BlasterCharacter->GetCharacterMovement()->bOrientRotationToMovement = false;
 
 		m_BlasterCharacter->bUseControllerRotationYaw = true;
+
+		if (m_EquippedWeapon->m_EquipSound)
+		{
+			UGameplayStatics::PlaySoundAtLocation(
+				this, m_EquippedWeapon->m_EquipSound, m_BlasterCharacter->GetActorLocation());
+		}
+	}
+}
+
+// 해당 함수는 서버에서만 실행
+void UCombatComponent::Reload()
+{
+	// Reload 할 탄창이 남았을 때 || 현재 Reload 중이 아닐 때
+	if (m_CarriedAmmo >= 0 && m_CombatState != ECombatState::ECS_Reloading)
+	{
+		ServerReload();
+	}
+}
+
+void UCombatComponent::FinishReloading()
+{
+	if (m_BlasterCharacter == nullptr)
+		return;
+
+	if (m_BlasterCharacter->HasAuthority())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("FinishReloading Called"));
+		m_CombatState = ECombatState::ECS_Unoccupied;
+	}
+
+	if (m_FireButtonPressed)
+	{
+		Fire();
+	}
+}
+
+// 클라이언트 측에서 Reload 를 실행할 수 있게 해야 한다.
+// 이때 Server RPC 를 세팅할 것이다.
+// 서버 측에서도 Server RPC 를 호출한다.
+// ServerReload_Implementation 는 "서버에서만" 실행하는 함수가 된다.
+void UCombatComponent::ServerReload_Implementation()
+{
+	// play reload montage
+	if (m_BlasterCharacter == nullptr || m_EquippedWeapon == nullptr)
+		return;
+
+	int32 ReloadAmount = AmountToReload();
+
+	if (m_CarriedAmmoMap.Contains(m_EquippedWeapon->GetWeaponType()))
+	{
+		// 사용가능한 탄창 개수를, 사용한만큼 줄일 것이다.
+		m_CarriedAmmoMap[m_EquippedWeapon->GetWeaponType()] -= ReloadAmount;
+
+		// m_CarriedAmmo 는 Replicate 알아서 된다.
+		m_CarriedAmmo = m_CarriedAmmoMap[m_EquippedWeapon->GetWeaponType()];
+	}
+
+	// m_EquippedWeapon 의 m_Ammo 도 자동 Update 된다.
+	m_EquippedWeapon->AddAmmo(-1 * ReloadAmount);
+
+	// m_Carried Ammo 는 Replicate 되고 있다.
+	if (m_Controller)
+	{
+		m_Controller->SetHUDCarriedAmmo(m_CarriedAmmo);
+	}
+
+	m_CombatState = ECombatState::ECS_Reloading;
+
+	// 서버, 클라이언트 모두에서 일어나는 일을 담당할 것이다.
+	// 우선, 서버에서 ServerReload_Implementation 를 실행하니 , 
+	// 서버에서는 HandleReload 를 실행할 것이다.
+	// 클라이언트에서도 같은 기능을 수행하기 위해서 m_CombatState 를 replicate 변수로 등록하고
+	// OnRep_CombatState 에 같은 기능을 하는 코드를 넣는다.
+	HandleReload();
+}
+
+void UCombatComponent::HandleReload()
+{
+	m_BlasterCharacter->PlayReloadMontage();
+}
+
+int32 UCombatComponent::AmountToReload()
+{
+	if (m_EquippedWeapon == nullptr)
+		return 0;
+
+	int32 RoomInMag = m_EquippedWeapon->GetMapCapacity() - m_EquippedWeapon->GetAmmo();
+
+	if (m_CarriedAmmoMap.Contains(m_EquippedWeapon->GetWeaponType()))
+	{
+		int32 AmountCarried = m_CarriedAmmoMap[m_EquippedWeapon->GetWeaponType()];
+		int32 Least = FMath::Min(RoomInMag, AmountCarried);
+
+		// 아래 코드는 사실 불필요하다. 혹시나 하여 하는 것
+		// RoomInMag 는 Leas 를 넘을 수 없으니까
+		return FMath::Clamp(RoomInMag, 0, Least);
+	}
+
+	return 0;
+}
+
+// ServerReload_Implementation 에서 m_CombatState 변수를 바꾸면 Replicate 되어, 아래 함수를
+// 서버가 아닌 ! 클라이언트 들에서 실행하게 될 것이다.
+void UCombatComponent::OnRep_CombatState()
+{
+	switch (m_CombatState)
+	{
+	case ECombatState::ECS_Unoccupied:
+		if (m_FireButtonPressed)
+			Fire();
+		break;
+	case ECombatState::ECS_Reloading:
+		HandleReload();
+		break;
 	}
 }
 

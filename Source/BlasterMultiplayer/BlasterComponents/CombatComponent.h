@@ -83,6 +83,9 @@ protected:
 
 	// 서버와 Client 기계 모두에서 발생하는 일을 Dealing 하기 
 	void HandleReload();
+
+	// 내가 가지고 있는 m_CarriedAmmo 를 이용해서 Ammo 채우기 (탄창 채우기)
+	int32 AmountToReload();
 private :
 	UPROPERTY()
 	class ABlasterCharacter* m_BlasterCharacter;

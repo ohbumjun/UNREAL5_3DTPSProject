@@ -80,4 +80,11 @@ private :
 	// IK Using For LeftHand
 	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
 	bool bUseFabrick = false;
+
+	// ex. Relaod 중에는 Aim 을 못하게 할 것이다.
+	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
+	bool bUseAimOffset = false;
+
+	UPROPERTY(BlueprintReadOnly, Category = Character, meta = (AllowPrivateAccess = "true"))
+	bool bTransformRightHand = false;
 };

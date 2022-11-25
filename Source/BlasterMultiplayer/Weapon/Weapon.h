@@ -45,6 +45,9 @@ public:
 	// Drop Weapon When Character Dies 
 	void Dropped();
 
+	// Reload 를 통한 탄창 추가 
+	void AddAmmo(int32 AmmoToAdd);
+
 	/*
 	* Textures for weapon crosshairs
 	*/
@@ -71,6 +74,9 @@ public:
 		float m_FireDelay = 0.15f;
 	UPROPERTY(EditAnywhere, Category = Combat)
 		bool m_bAutomatic = true;
+
+	UPROPERTY(EditAnywhere)
+	class USoundCue* m_EquipSound;
 
 protected:
 	// Called when the game starts or when spawned
@@ -145,4 +151,6 @@ public :
 	FORCEINLINE float GetZoomedInterpSpeed() const { return m_ZoomInterpSpeed; }
 	bool IsEmpty();
 	FORCEINLINE EWeaponType GetWeaponType() const { return m_WeaponType; }
+	FORCEINLINE int32 GetMapCapacity() const { return m_MagCapacity; }
+	FORCEINLINE int32 GetAmmo() const { return m_Ammo; }
 };

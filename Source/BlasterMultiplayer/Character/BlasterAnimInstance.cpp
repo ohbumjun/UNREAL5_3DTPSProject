@@ -130,6 +130,12 @@ void UBlasterAnimInstance::NativeUpdateAnimation(float DeltaTime)
 		// Reloading 중이라면 Left Hand 에 적용 중인 Left Hand IK 를 적용하지 않을 것이다
 		bUseFabrick = m_BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading;
 
+		// Reload Animation 이 진행중이라면, Aim Animation 으로 전환되지 않게 할 것이다.
+		bUseAimOffset = m_BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+
+		// ex. Reload 중에는 Right Hand 를 Rotate X (Right Hand 를 Rotate 하게 되면, 총구가 향하는 방향으로 총을 돌리게 된다)
+		bTransformRightHand = m_BlasterCharacter->GetCombatState() != ECombatState::ECS_Reloading;
+
 
 		/* <디버그 용도>
 		// 특정 Socket 의 World Transform 위치를 가져온다. (총구에 해당하는 Socket)
